@@ -1,9 +1,9 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
+require "utils/inreplace"
+
 # Helper functions for updating PyPI resources.
-#
-# @api private
 module PyPI
   PYTHONHOSTED_URL_PREFIX = "https://files.pythonhosted.org/packages/"
   private_constant :PYTHONHOSTED_URL_PREFIX
@@ -11,7 +11,6 @@ module PyPI
   # Represents a Python package.
   # This package can be a PyPI package (either by name/version or PyPI distribution URL),
   # or it can be a non-PyPI URL.
-  # @api private
   class Package
     sig { params(package_string: String, is_url: T::Boolean, python_name: String).void }
     def initialize(package_string, is_url: false, python_name: "python")
@@ -52,7 +51,7 @@ module PyPI
       @is_pypi_url || !@is_url
     end
 
-    # Get name, URL, SHA-256 checksum, and latest version for a given package.
+    # Get name, URL, SHA-256 checksum and latest version for a given package.
     # This only works for packages from PyPI or from a PyPI URL; packages
     # derived from non-PyPI URLs will produce `nil` here.
     sig { params(new_version: T.nilable(T.any(String, Version))).returns(T.nilable(T::Array[String])) }
@@ -66,22 +65,32 @@ module PyPI
       else
         "https://pypi.org/pypi/#{name}/json"
       end
-      out, _, status = Utils::Curl.curl_output metadata_url, "--location", "--fail"
+      result = Utils::Curl.curl_output(metadata_url, "--location", "--fail")
 
-      return unless status.success?
+      return unless result.status.success?
 
       begin
-        json = JSON.parse out
+        json = JSON.parse(result.stdout)
       rescue JSON::ParserError
         return
       end
 
-      sdist = json["urls"].find { |url| url["packagetype"] == "sdist" }
-      return if sdist.nil?
+      dist = json["urls"].find do |url|
+        url["packagetype"] == "sdist"
+      end
+
+      # If there isn't an sdist, we use the first universal wheel.
+      if dist.nil?
+        dist = json["urls"].find do |url|
+          url["filename"].end_with?("-none-any.whl")
+        end
+      end
+
+      return if dist.nil?
 
       @pypi_info = [
-        PyPI.normalize_python_package(json["info"]["name"]), sdist["url"],
-        sdist["digests"]["sha256"], json["info"]["version"]
+        PyPI.normalize_python_package(json["info"]["name"]), dist["url"],
+        dist["digests"]["sha256"], json["info"]["version"]
       ]
     end
 
@@ -198,6 +207,8 @@ module PyPI
       package_name:             T.nilable(String),
       extra_packages:           T.nilable(T::Array[String]),
       exclude_packages:         T.nilable(T::Array[String]),
+      dependencies:             T.nilable(T::Array[String]),
+      install_dependencies:     T.nilable(T::Boolean),
       print_only:               T.nilable(T::Boolean),
       silent:                   T.nilable(T::Boolean),
       verbose:                  T.nilable(T::Boolean),
@@ -205,9 +216,9 @@ module PyPI
     ).returns(T.nilable(T::Boolean))
   }
   def self.update_python_resources!(formula, version: nil, package_name: nil, extra_packages: nil,
-                                    exclude_packages: nil, print_only: false, silent: false, verbose: false,
+                                    exclude_packages: nil, dependencies: nil, install_dependencies: false,
+                                    print_only: false, silent: false, verbose: false,
                                     ignore_non_pypi_packages: false)
-
     auto_update_list = formula.tap&.pypi_formula_mappings
     if auto_update_list.present? && auto_update_list.key?(formula.full_name) &&
        package_name.blank? && extra_packages.blank? && exclude_packages.blank?
@@ -224,7 +235,20 @@ module PyPI
         package_name = list_entry["package_name"]
         extra_packages = list_entry["extra_packages"]
         exclude_packages = list_entry["exclude_packages"]
+        dependencies = list_entry["dependencies"]
       end
+    end
+
+    missing_dependencies = Array(dependencies).reject do |dependency|
+      Formula[dependency].any_version_installed?
+    rescue FormulaUnavailableError
+      odie "Formula \"#{dependency}\" not found but it is a dependency to update \"#{formula.name}\" resources."
+    end
+    if missing_dependencies.present?
+      missing_msg = "formulae required to update \"#{formula.name}\" resources: #{missing_dependencies.join(", ")}"
+      odie "Missing #{missing_msg}" unless install_dependencies
+      ohai "Installing #{missing_msg}"
+      missing_dependencies.each(&method(:ensure_formula_installed!))
     end
 
     python_deps = formula.deps
@@ -239,17 +263,19 @@ module PyPI
     end
 
     main_package = if package_name.present?
-      Package.new(package_name, python_name: python_name)
+      package_string = package_name
+      package_string += "==#{formula.version}" if version.blank? && formula.version.present?
+      Package.new(package_string, python_name:)
     elsif package_name == ""
       nil
     else
       stable = T.must(formula.stable)
       url = if stable.specs[:tag].present?
-        url = "git+#{stable.url}@#{stable.specs[:tag]}"
+        "git+#{stable.url}@#{stable.specs[:tag]}"
       else
         stable.url
       end
-      Package.new(url, is_url: true, python_name: python_name)
+      Package.new(url, is_url: true, python_name:)
     end
 
     if main_package.nil?
@@ -301,11 +327,11 @@ module PyPI
     # Resolve the dependency tree of all input packages
     show_info = !print_only && !silent
     ohai "Retrieving PyPI dependencies for \"#{input_packages.join(" ")}\"..." if show_info
-    found_packages = pip_report(input_packages, python_name: python_name, print_stderr: verbose && show_info)
+    found_packages = pip_report(input_packages, python_name:, print_stderr: verbose && show_info)
     # Resolve the dependency tree of excluded packages to prune the above
     exclude_packages.delete_if { |package| found_packages.exclude? package }
     ohai "Retrieving PyPI dependencies for excluded \"#{exclude_packages.join(" ")}\"..." if show_info
-    exclude_packages = pip_report(exclude_packages, python_name: python_name, print_stderr: verbose && show_info)
+    exclude_packages = pip_report(exclude_packages, python_name:, print_stderr: verbose && show_info)
     exclude_packages += [Package.new(main_package.name)] unless main_package.nil?
 
     new_resource_blocks = ""
@@ -352,13 +378,24 @@ module PyPI
       new_resource_blocks += "  def install"
     else
       # Replace existing resource blocks with new resource blocks
-      inreplace_regex = /  (resource .* do\s+url .*\s+sha256 .*\s+ end\s*)+/
+      inreplace_regex = /
+        \ \ (
+        resource\ .*\ do\s+
+          url\ .*\s+
+          sha256\ .*\s+
+          ((\#.*\s+)*
+          patch\ (.*\ )?do\s+
+            url\ .*\s+
+            sha256\ .*\s+
+          end\s+)*
+        end\s+)+
+      /x
       new_resource_blocks += "  "
     end
 
     ohai "Updating resource blocks" unless silent
     Utils::Inreplace.inreplace formula.path do |s|
-      if s.inreplace_string.scan(inreplace_regex).length > 1
+      if T.must(s.inreplace_string.split(/^  test do\b/, 2).first).scan(inreplace_regex).length > 1
         odie "Unable to update resource blocks for \"#{formula.name}\" automatically. Please update them manually."
       end
       s.sub! inreplace_regex, new_resource_blocks

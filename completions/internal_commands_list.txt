@@ -28,6 +28,7 @@ completions
 config
 contributions
 create
+debugger
 deps
 desc
 determine-test-runners
@@ -43,6 +44,7 @@ fetch
 formula
 formulae
 generate-cask-api
+generate-cask-ci-matrix
 generate-formula-api
 generate-man-completions
 gist-logs
@@ -69,7 +71,6 @@ options
 outdated
 pin
 post_install
-postgresql-upgrade-database
 postinstall
 pr-automerge
 pr-publish
@@ -85,11 +86,13 @@ remove
 rm
 rubocop
 ruby
+rubydoc
 search
 setup-ruby
 sh
 shellenv
 style
+tab
 tap
 tap-info
 tap-new

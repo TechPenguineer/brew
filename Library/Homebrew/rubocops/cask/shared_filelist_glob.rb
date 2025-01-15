@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 module RuboCop
@@ -7,6 +7,7 @@ module RuboCop
       class SharedFilelistGlob < Base
         extend AutoCorrector
 
+        sig { params(node: RuboCop::AST::SendNode).void }
         def on_send(node)
           return if node.method_name != :zap
 
@@ -24,7 +25,7 @@ module RuboCop
                 corrected_item = item.source.sub(/sfl\d"$/, "sfl*\"")
 
                 add_offense(item,
-                            message: message) do |corrector|
+                            message:) do |corrector|
                   corrector.replace(item, corrected_item)
                 end
               end

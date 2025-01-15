@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "attrable"
@@ -8,20 +8,24 @@ require "digest"
 require "livecheck/livecheck"
 require "source_location"
 require "system_command"
+require "utils/backtrace"
+require "formula_name_cask_token_auditor"
 require "utils/curl"
 require "utils/git"
 require "utils/shared_audits"
 
 module Cask
   # Audit a cask for various problems.
-  #
-  # @api private
   class Audit
     include SystemCommand::Mixin
     include ::Utils::Curl
     extend Attrable
 
-    attr_reader :cask, :download
+    sig { returns(Cask) }
+    attr_reader :cask
+
+    sig { returns(T.nilable(Download)) }
+    attr_reader :download
 
     attr_predicate :new_cask?, :strict?, :signing?, :online?, :token_conflicts?
 
@@ -41,7 +45,7 @@ module Cask
       download = online || signing if download.nil?
 
       @cask = cask
-      @download = Download.new(cask, quarantine: quarantine) if download
+      @download = Download.new(cask, quarantine:) if download
       @online = online
       @strict = strict
       @signing = signing
@@ -95,7 +99,7 @@ module Cask
       # Only raise non-critical audits if the user specified `--strict`.
       return if strict_only && !@strict
 
-      errors << ({ message: message, location: location, corrected: false })
+      errors << ({ message:, location:, corrected: false })
     end
 
     def result
@@ -199,7 +203,7 @@ module Cask
     def audit_description
       # Fonts seldom benefit from descriptions and requiring them disproportionately
       # increases the maintenance burden.
-      return if cask.tap == "homebrew/cask-fonts"
+      return if cask.tap == "homebrew/cask" && cask.token.include?("font-")
 
       add_error("Cask should have a description. Please add a `desc` stanza.", strict_only: true) if cask.desc.blank?
     end
@@ -273,7 +277,7 @@ module Cask
     sig { void }
     def audit_latest_with_livecheck
       return unless cask.version&.latest?
-      return unless cask.livecheckable?
+      return unless cask.livecheck_defined?
       return if cask.livecheck.skip?
 
       add_error "Casks with a `livecheck` should not use `version :latest`."
@@ -291,24 +295,24 @@ module Cask
 
     sig { params(livecheck_result: T.any(NilClass, T::Boolean, Symbol)).void }
     def audit_hosting_with_livecheck(livecheck_result: audit_livecheck_version)
-      return if cask.discontinued? || cask.deprecated? || cask.disabled?
+      return if cask.deprecated? || cask.disabled?
       return if cask.version&.latest?
-      return unless cask.url
+      return if (url = cask.url).nil?
       return if block_url_offline?
-      return if cask.livecheckable?
+      return if cask.livecheck_defined?
       return if livecheck_result == :auto_detected
 
       add_livecheck = "please add a livecheck. See #{Formatter.url(LIVECHECK_REFERENCE_URL)}"
 
-      case cask.url.to_s
+      case url.to_s
       when %r{sourceforge.net/(\S+)}
         return unless online?
 
-        add_error "Download is hosted on SourceForge, #{add_livecheck}", location: cask.url.location
+        add_error "Download is hosted on SourceForge, #{add_livecheck}", location: url.location
       when %r{dl.devmate.com/(\S+)}
-        add_error "Download is hosted on DevMate, #{add_livecheck}", location: cask.url.location
+        add_error "Download is hosted on DevMate, #{add_livecheck}", location: url.location
       when %r{rink.hockeyapp.net/(\S+)}
-        add_error "Download is hosted on HockeyApp, #{add_livecheck}", location: cask.url.location
+        add_error "Download is hosted on HockeyApp, #{add_livecheck}", location: url.location
       end
     end
 
@@ -316,17 +320,22 @@ module Cask
 
     sig { void }
     def audit_download_url_format
-      return unless cask.url
+      return if (url = cask.url).nil?
       return if block_url_offline?
 
       odebug "Auditing URL format"
-      if bad_sourceforge_url?
-        add_error "SourceForge URL format incorrect. See #{Formatter.url(SOURCEFORGE_OSDN_REFERENCE_URL)}",
-                  location: cask.url.location
-      elsif bad_osdn_url?
-        add_error "OSDN URL format incorrect. See #{Formatter.url(SOURCEFORGE_OSDN_REFERENCE_URL)}",
-                  location: cask.url.location
-      end
+      return unless bad_sourceforge_url?
+
+      add_error "SourceForge URL format incorrect. See #{Formatter.url(SOURCEFORGE_OSDN_REFERENCE_URL)}",
+                location: url.location
+    end
+
+    def audit_download_url_is_osdn
+      return if (url = cask.url).nil?
+      return if block_url_offline?
+      return unless bad_osdn_url?
+
+      add_error "OSDN download urls are disabled.", location: url.location, strict_only: true
     end
 
     VERIFIED_URL_REFERENCE_URL = "https://docs.brew.sh/Cask-Cookbook#when-url-and-homepage-domains-differ-add-verified"
@@ -359,15 +368,15 @@ module Cask
 
     sig { void }
     def audit_no_match
-      return unless cask.url
+      return if (url = cask.url).nil?
       return if block_url_offline?
       return unless verified_present?
       return if verified_matches_url?
 
       add_error "Verified URL #{Formatter.url(url_from_verified)} does not match URL " \
-                "#{Formatter.url(strip_url_scheme(cask.url.to_s))}. " \
+                "#{Formatter.url(strip_url_scheme(url.to_s))}. " \
                 "See #{Formatter.url(VERIFIED_URL_REFERENCE_URL)}",
-                location: cask.url.location
+                location: url.location
     end
 
     sig { void }
@@ -389,6 +398,15 @@ module Cask
     end
 
     sig { void }
+    def audit_token
+      token_auditor = Homebrew::FormulaNameCaskTokenAuditor.new(cask.token)
+      return if (errors = token_auditor.errors).none?
+
+      add_error "Cask token '#{cask.token}' must not contain #{errors.to_sentence(two_words_connector: " or ",
+                                                                                  last_word_connector: " or ")}."
+    end
+
+    sig { void }
     def audit_token_conflicts
       return unless token_conflicts?
 
@@ -403,24 +421,6 @@ module Cask
     end
 
     sig { void }
-    def audit_token_valid
-      add_error "cask token contains non-ascii characters" unless cask.token.ascii_only?
-      add_error "cask token + should be replaced by -plus-" if cask.token.include? "+"
-      add_error "cask token whitespace should be replaced by hyphens" if cask.token.include? " "
-      add_error "cask token @ should be replaced by -at-" if cask.token.include? "@"
-      add_error "cask token underscores should be replaced by hyphens" if cask.token.include? "_"
-      add_error "cask token should not contain double hyphens" if cask.token.include? "--"
-
-      if cask.token.match?(/[^a-z0-9-]/)
-        add_error "cask token should only contain lowercase alphanumeric characters and hyphens"
-      end
-
-      return if !cask.token.start_with?("-") && !cask.token.end_with?("-")
-
-      add_error "cask token should not have leading or trailing hyphens"
-    end
-
-    sig { void }
     def audit_token_bad_words
       return unless new_cask?
 
@@ -429,7 +429,7 @@ module Cask
       add_error "cask token contains .app" if token.end_with? ".app"
 
       match_data = /-(?<designation>alpha|beta|rc|release-candidate)$/.match(cask.token)
-      if match_data && cask.tap&.official? && cask.tap != "homebrew/cask-versions"
+      if match_data && cask.tap&.official?
         add_error "cask token contains version designation '#{match_data[:designation]}'"
       end
 
@@ -450,46 +450,58 @@ module Cask
 
     sig { void }
     def audit_download
-      return if download.blank? || cask.url.blank?
+      return if (download = self.download).blank? || (url = cask.url).nil?
 
       begin
         download.fetch
       rescue => e
-        add_error "download not possible: #{e}", location: cask.url.location
+        add_error "download not possible: #{e}", location: url.location
       end
     end
 
     sig { void }
     def audit_livecheck_unneeded_long_version
-      return if cask.version.nil? || cask.url.nil?
+      return if cask.version.nil? || (url = cask.url).nil?
       return if cask.livecheck.strategy != :sparkle
       return unless cask.version.csv.second
       return if cask.url.to_s.include? cask.version.csv.second
       return if cask.version.csv.third.present? && cask.url.to_s.include?(cask.version.csv.third)
 
       add_error "Download does not require additional version components. Use `&:short_version` in the livecheck",
-                location:    cask.url.location,
+                location:    url.location,
                 strict_only: true
     end
 
     sig { void }
     def audit_signing
-      return if !signing? || download.blank? || cask.url.blank?
+      return if !signing? || download.blank? || (url = cask.url).nil?
 
       odebug "Auditing signing"
 
       extract_artifacts do |artifacts, tmpdir|
+        is_container = artifacts.any? { |a| a.is_a?(Artifact::App) || a.is_a?(Artifact::Pkg) }
+
         artifacts.each do |artifact|
+          next if artifact.is_a?(Artifact::Binary) && is_container == true
+
           artifact_path = artifact.is_a?(Artifact::Pkg) ? artifact.path : artifact.source
+
           path = tmpdir/artifact_path.relative_path_from(cask.staged_path)
 
-          next unless path.exist?
-
-          result = system_command("spctl", args: ["--assess", "--type", "install", path], print_stderr: false)
+          result = case artifact
+          when Artifact::Pkg
+            system_command("spctl", args: ["--assess", "--type", "install", path], print_stderr: false)
+          when Artifact::App
+            system_command("spctl", args: ["--assess", "--type", "execute", path], print_stderr: false)
+          when Artifact::Binary
+            system_command("codesign",  args: ["--verify", path], print_stderr: false)
+          else
+            add_error "Unknown artifact type: #{artifact.class}", location: url.location
+          end
 
           next if result.success?
 
-          add_error <<~EOS, location: cask.url.location, strict_only: true
+          add_error <<~EOS, location: url.location, strict_only: true
             Signature verification failed:
             #{result.merged_output}
             macOS on ARM requires software to be signed.
@@ -502,6 +514,7 @@ module Cask
     sig { void }
     def extract_artifacts
       return unless online?
+      return if (download = self.download).nil?
 
       artifacts = cask.artifacts.select do |artifact|
         artifact.is_a?(Artifact::Pkg) || artifact.is_a?(Artifact::App) || artifact.is_a?(Artifact::Binary)
@@ -516,6 +529,12 @@ module Cask
 
       @tmpdir ||= Pathname(Dir.mktmpdir("cask-audit", HOMEBREW_TEMP))
 
+      # Clean up tmp dir when @tmpdir object is destroyed
+      ObjectSpace.define_finalizer(
+        @tmpdir,
+        proc { FileUtils.remove_entry(@tmpdir) },
+      )
+
       ohai "Downloading and extracting artifacts"
 
       downloaded_path = download.fetch
@@ -525,10 +544,77 @@ module Cask
 
       # Extract the container to the temporary directory.
       primary_container.extract_nestedly(to: @tmpdir, basename: downloaded_path.basename, verbose: false)
+
+      if (nested_container = @cask.container&.nested)
+        FileUtils.chmod_R "+rw", @tmpdir/nested_container, force: true, verbose: false
+        UnpackStrategy.detect(@tmpdir/nested_container, merge_xattrs: true)
+                      .extract_nestedly(to: @tmpdir, verbose: false)
+      end
+
       @artifacts_extracted = true # Set the flag to indicate that extraction has occurred.
 
       # Yield the artifacts and temp directory to the block if provided.
       yield artifacts, @tmpdir if block_given?
+    end
+
+    sig { void }
+    def audit_rosetta
+      return if (url = cask.url).nil?
+      return unless online?
+      return if Homebrew::SimulateSystem.current_arch != :arm
+
+      odebug "Auditing Rosetta 2 requirement"
+
+      extract_artifacts do |artifacts, tmpdir|
+        is_container = artifacts.any? { |a| a.is_a?(Artifact::App) || a.is_a?(Artifact::Pkg) }
+
+        artifacts.filter { |a| a.is_a?(Artifact::App) || a.is_a?(Artifact::Binary) }
+                 .each do |artifact|
+          next if artifact.is_a?(Artifact::Binary) && is_container
+
+          path = tmpdir/artifact.source.relative_path_from(cask.staged_path)
+
+          result = case artifact
+          when Artifact::App
+            files = Dir[path/"Contents/MacOS/*"].select do |f|
+              File.executable?(f) && !File.directory?(f) && !f.end_with?(".dylib")
+            end
+            add_error "No binaries in App: #{artifact.source}", location: url.location if files.empty?
+
+            main_binary = get_plist_main_binary(path)
+            main_binary ||= files.first
+
+            system_command("lipo", args: ["-archs", main_binary], print_stderr: false)
+          when Artifact::Binary
+            binary_path = path.to_s.gsub(cask.appdir, tmpdir)
+            system_command("lipo", args: ["-archs", binary_path], print_stderr: true)
+          else
+            add_error "Unknown artifact type: #{artifact.class}", location: url.location
+          end
+
+          # binary stanza can contain shell scripts, so we just continue if lipo fails.
+          next unless result.success?
+
+          odebug result.merged_output
+
+          unless /arm64|x86_64/.match?(result.merged_output)
+            add_error "Artifacts architecture is no longer supported by macOS!",
+                      location: url.location
+            next
+          end
+
+          supports_arm = result.merged_output.include?("arm64")
+          mentions_rosetta = cask.caveats.include?("requires Rosetta 2")
+
+          if supports_arm && mentions_rosetta
+            add_error "Artifacts does not require Rosetta 2 but the caveats say otherwise!",
+                      location: url.location
+          elsif !supports_arm && !mentions_rosetta
+            add_error "Artifacts require Rosetta 2 but this is not indicated by the caveats!",
+                      location: url.location
+          end
+        end
+      end
     end
 
     sig { returns(T.any(NilClass, T::Boolean, Symbol)) }
@@ -542,7 +628,7 @@ module Cask
       if referenced_cask
         skip_info = Homebrew::Livecheck::SkipConditions.referenced_skip_information(
           referenced_cask,
-          Homebrew::Livecheck.cask_name(cask),
+          Homebrew::Livecheck.package_or_resource_name(cask),
         )
       end
 
@@ -575,28 +661,39 @@ module Cask
       debug_messages = []
       debug_messages << "Plist #{plist_min_os}" if plist_min_os
       debug_messages << "Sparkle #{sparkle_min_os}" if sparkle_min_os
-      odebug "Minimum OS version: #{debug_messages.join(" | ")}" unless debug_messages.empty?
+      odebug "Detected minimum OS version: #{debug_messages.join(" | ")}" unless debug_messages.empty?
       min_os = [plist_min_os, sparkle_min_os].compact.max
 
       return if min_os.nil? || min_os <= HOMEBREW_MACOS_OLDEST_ALLOWED
 
-      cask_min_os = cask.depends_on.macos&.version
-      return if cask_min_os == min_os
+      on_system_block_min_os = cask.on_system_block_min_os
+      cask_min_os = [on_system_block_min_os, cask.depends_on.macos&.minimum_version].compact.max
+      odebug "Declared minimum OS version: #{cask_min_os&.to_sym}"
+      return if cask_min_os&.to_sym == min_os.to_sym
+      return if cask.on_system_blocks_exist? &&
+                OnSystem.arch_condition_met?(:arm) &&
+                cask_min_os.present? &&
+                cask_min_os < MacOSVersion.new("11")
 
-      min_os_symbol = if cask_min_os.present?
-        cask_min_os.to_sym.inspect
+      min_os_definition = if cask_min_os.present?
+        if on_system_block_min_os.present? &&
+           on_system_block_min_os > cask.depends_on.macos&.minimum_version
+          "a block with a minimum OS version of #{cask_min_os.to_sym.inspect}"
+        else
+          cask_min_os.to_sym.inspect
+        end
       else
         "no minimum OS version"
       end
       add_error "Upstream defined #{min_os.to_sym.inspect} as the minimum OS version " \
-                "and the cask defined #{min_os_symbol}",
+                "but the cask declared #{min_os_definition}",
                 strict_only: true
     end
 
     sig { returns(T.nilable(MacOSVersion)) }
     def livecheck_min_os
       return unless online?
-      return unless cask.livecheckable?
+      return unless cask.livecheck_defined?
       return if cask.livecheck.strategy != :sparkle
 
       # `Sparkle` strategy blocks that use the `items` argument (instead of
@@ -653,102 +750,123 @@ module Cask
       end
     end
 
+    sig { params(path: Pathname).returns(T.nilable(String)) }
+    def get_plist_main_binary(path)
+      return unless online?
+
+      plist_path = "#{path}/Contents/Info.plist"
+      return unless File.exist?(plist_path)
+
+      plist = system_command!("plutil", args: ["-convert", "xml1", "-o", "-", plist_path]).plist
+      binary = plist["CFBundleExecutable"].presence
+      return unless binary
+
+      binary_path = "#{path}/Contents/MacOS/#{binary}"
+
+      binary_path if File.exist?(binary_path) && File.executable?(binary_path)
+    end
+
     sig { void }
     def audit_github_prerelease_version
-      return if cask.tap == "homebrew/cask-versions"
+      return if (url = cask.url).nil?
 
       odebug "Auditing GitHub prerelease"
       user, repo = get_repo_data(%r{https?://github\.com/([^/]+)/([^/]+)/?.*}) if online?
-      return if user.nil?
+      return if user.nil? || repo.nil?
 
-      tag = SharedAudits.github_tag_from_url(cask.url)
+      tag = SharedAudits.github_tag_from_url(url.to_s)
       tag ||= cask.version
-      error = SharedAudits.github_release(user, repo, tag, cask: cask)
-      add_error error, location: cask.url.location if error
+      error = SharedAudits.github_release(user, repo, tag, cask:)
+      add_error error, location: url.location if error
     end
 
     sig { void }
     def audit_gitlab_prerelease_version
-      return if cask.tap == "homebrew/cask-versions"
+      return if (url = cask.url).nil?
 
       user, repo = get_repo_data(%r{https?://gitlab\.com/([^/]+)/([^/]+)/?.*}) if online?
-      return if user.nil?
+      return if user.nil? || repo.nil?
 
       odebug "Auditing GitLab prerelease"
 
-      tag = SharedAudits.gitlab_tag_from_url(cask.url)
+      tag = SharedAudits.gitlab_tag_from_url(url.to_s)
       tag ||= cask.version
-      error = SharedAudits.gitlab_release(user, repo, tag, cask: cask)
-      add_error error, location: cask.url.location if error
+      error = SharedAudits.gitlab_release(user, repo, tag, cask:)
+      add_error error, location: url.location if error
     end
 
     sig { void }
     def audit_github_repository_archived
-      # Deprecated/disabled casks may have an archived repo.
-      return if cask.discontinued? || cask.deprecated? || cask.disabled?
+      # Deprecated/disabled casks may have an archived repository.
+      return if cask.deprecated? || cask.disabled?
+      return if (url = cask.url).nil?
 
       user, repo = get_repo_data(%r{https?://github\.com/([^/]+)/([^/]+)/?.*}) if online?
-      return if user.nil?
+      return if user.nil? || repo.nil?
 
       metadata = SharedAudits.github_repo_data(user, repo)
       return if metadata.nil?
 
-      add_error "GitHub repo is archived", location: cask.url.location if metadata["archived"]
+      add_error "GitHub repo is archived", location: url.location if metadata["archived"]
     end
 
     sig { void }
     def audit_gitlab_repository_archived
-      # Deprecated/disabled casks may have an archived repo.
-      return if cask.discontinued? || cask.deprecated? || cask.disabled?
+      # Deprecated/disabled casks may have an archived repository.
+      return if cask.deprecated? || cask.disabled?
+      return if (url = cask.url).nil?
 
       user, repo = get_repo_data(%r{https?://gitlab\.com/([^/]+)/([^/]+)/?.*}) if online?
-      return if user.nil?
+      return if user.nil? || repo.nil?
 
       odebug "Auditing GitLab repo archived"
 
       metadata = SharedAudits.gitlab_repo_data(user, repo)
       return if metadata.nil?
 
-      add_error "GitLab repo is archived", location: cask.url.location if metadata["archived"]
+      add_error "GitLab repo is archived", location: url.location if metadata["archived"]
     end
 
     sig { void }
     def audit_github_repository
       return unless new_cask?
+      return if (url = cask.url).nil?
 
       user, repo = get_repo_data(%r{https?://github\.com/([^/]+)/([^/]+)/?.*})
-      return if user.nil?
+      return if user.nil? || repo.nil?
 
       odebug "Auditing GitHub repo"
 
       error = SharedAudits.github(user, repo)
-      add_error error, location: cask.url.location if error
+      add_error error, location: url.location if error
     end
 
     sig { void }
     def audit_gitlab_repository
       return unless new_cask?
+      return if (url = cask.url).nil?
 
       user, repo = get_repo_data(%r{https?://gitlab\.com/([^/]+)/([^/]+)/?.*})
-      return if user.nil?
+      return if user.nil? || repo.nil?
 
       odebug "Auditing GitLab repo"
 
       error = SharedAudits.gitlab(user, repo)
-      add_error error, location: cask.url.location if error
+      add_error error, location: url.location if error
     end
 
     sig { void }
     def audit_bitbucket_repository
       return unless new_cask?
+      return if (url = cask.url).nil?
 
       user, repo = get_repo_data(%r{https?://bitbucket\.org/([^/]+)/([^/]+)/?.*})
-      return if user.nil?
+      return if user.nil? || repo.nil?
 
       odebug "Auditing Bitbucket repo"
 
       error = SharedAudits.bitbucket(user, repo)
-      add_error error, location: cask.url.location if error
+      add_error error, location: url.location if error
     end
 
     sig { void }
@@ -783,7 +901,7 @@ module Cask
 
       validate_url_for_https_availability(
         homepage, SharedAudits::URL_TYPE_HOMEPAGE,
-        user_agents:   user_agents,
+        user_agents:,
         check_content: true,
         strict:        strict?
       )
@@ -797,22 +915,23 @@ module Cask
 
       validate_url_for_https_availability(
         url, "binary URL",
-        location:    cask.url.location,
-        user_agents: [cask.url.user_agent],
-        referer:     cask.url&.referer
+        location:    url.location,
+        user_agents: [url.user_agent],
+        referer:     url.referer
       )
     end
 
     sig { void }
     def audit_livecheck_https_availability
       return unless online?
-      return unless cask.livecheckable?
+      return unless cask.livecheck_defined?
       return unless (url = cask.livecheck.url)
       return if url.is_a?(Symbol)
 
       validate_url_for_https_availability(
         url, "livecheck URL",
-        check_content: true
+        check_content: true,
+        user_agents:   [:default, :browser]
       )
     end
 
@@ -825,6 +944,12 @@ module Cask
       return if cask.sourcefile_path.to_s.end_with?(expected_path)
 
       add_error "Cask should be located in '#{expected_path}'"
+    end
+
+    sig { void }
+    def audit_deprecate_disable
+      error = SharedAudits.check_deprecate_disable_reason(cask)
+      add_error error if error
     end
 
     sig {
@@ -843,7 +968,7 @@ module Cask
         add_error problem, location: location unless exception
       elsif exception
         add_error "#{url_to_check} is in the secure connection audit skiplist but does not need to be skipped",
-                  location: location
+                  location:
       end
     end
 
@@ -871,7 +996,7 @@ module Cask
 
     sig { returns(T::Boolean) }
     def bad_sourceforge_url?
-      bad_url_format?(/sourceforge/,
+      bad_url_format?(%r{((downloads|\.dl)\.|//)sourceforge},
                       [
                         %r{\Ahttps://sourceforge\.net/projects/[^/]+/files/latest/download\Z},
                         %r{\Ahttps://downloads\.sourceforge\.net/(?!(project|sourceforge)/)},
@@ -880,7 +1005,7 @@ module Cask
 
     sig { returns(T::Boolean) }
     def bad_osdn_url?
-      bad_url_format?(/osd/, [%r{\Ahttps?://([^/]+.)?dl\.osdn\.jp/}])
+      domain.match?(%r{^(?:\w+\.)*osdn\.jp(?=/|$)})
     end
 
     # sig { returns(String) }
@@ -922,7 +1047,7 @@ module Cask
 
     # sig { returns(String) }
     def url_from_verified
-      strip_url_scheme(cask.url.verified)
+      strip_url_scheme(T.must(cask.url).verified)
     end
 
     sig { returns(T::Boolean) }
@@ -936,7 +1061,7 @@ module Cask
 
     sig { returns(T::Boolean) }
     def verified_present?
-      cask.url.verified.present?
+      cask.url&.verified.present?
     end
 
     sig { returns(T::Boolean) }
@@ -948,7 +1073,7 @@ module Cask
     def block_url_offline?
       return false if online?
 
-      cask.url.from_block?
+      !!cask.url&.from_block?
     end
 
     sig { returns(Tap) }

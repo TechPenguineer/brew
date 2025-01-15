@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "attrable"
@@ -6,8 +6,6 @@ require "mutex_m"
 require "ignorable"
 
 # Helper module for debugging formulae.
-#
-# @api private
 module Debrew
   extend Mutex_m
 

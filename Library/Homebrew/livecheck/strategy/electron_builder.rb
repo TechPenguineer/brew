@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 module Homebrew
@@ -9,8 +9,6 @@ module Homebrew
       #
       # This strategy is not applied automatically and it's necessary to use
       # `strategy :electron_builder` in a `livecheck` block to apply it.
-      #
-      # @api private
       class ElectronBuilder
         NICE_NAME = "electron-builder"
 
@@ -53,9 +51,9 @@ module Homebrew
           end
 
           Yaml.find_versions(
-            url:              url,
-            regex:            regex,
-            provided_content: provided_content,
+            url:,
+            regex:,
+            provided_content:,
             **unused,
             &block || proc { |yaml| yaml["version"] }
           )

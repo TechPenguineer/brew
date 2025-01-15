@@ -6,9 +6,13 @@ require "system_command"
 module UnpackStrategy
   class Zip
     module MacOSZipExtension
+      extend T::Helpers
+
+      requires_ancestor { UnpackStrategy }
+
       private
 
-      sig { params(unpack_dir: Pathname, basename: Pathname, verbose: T::Boolean).returns(T.untyped) }
+      sig { params(unpack_dir: Pathname, basename: Pathname, verbose: T::Boolean).void }
       def extract_to_dir(unpack_dir, basename:, verbose:)
         with_env(TZ: "UTC") do
           if merge_xattrs && contains_extended_attributes?(path)
@@ -17,7 +21,7 @@ module UnpackStrategy
             # (Also, Homebrew's ZIP artifact automatically deletes this folder.)
             return system_command! "ditto",
                                    args:         ["-x", "-k", path, unpack_dir],
-                                   verbose:      verbose,
+                                   verbose:,
                                    print_stderr: false
           end
 
@@ -26,9 +30,9 @@ module UnpackStrategy
           rescue ErrorDuringExecution => e
             raise unless e.stderr.include?("End-of-central-directory signature not found.")
 
-            system_command! "ditto",
+            system_command!("ditto",
                             args:    ["-x", "-k", path, unpack_dir],
-                            verbose: verbose
+                            verbose:)
             nil
           end
 
@@ -45,12 +49,12 @@ module UnpackStrategy
 
             # `ditto` keeps Finder attributes intact and does not skip volume labels
             # like `unzip` does, which can prevent disk images from being unzipped.
-            system_command! "ditto",
+            system_command!("ditto",
                             args:    ["-x", "-k", path, tmp_unpack_dir],
-                            verbose: verbose
+                            verbose:)
 
             volumes.each do |volume|
-              FileUtils.mv tmp_unpack_dir/volume, unpack_dir/volume, verbose: verbose
+              FileUtils.mv tmp_unpack_dir/volume, unpack_dir/volume, verbose:
             end
           end
         end

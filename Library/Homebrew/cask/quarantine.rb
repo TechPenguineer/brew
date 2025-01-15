@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "development_tools"
@@ -7,8 +7,6 @@ require "system_command"
 
 module Cask
   # Helper module for quarantining files.
-  #
-  # @api private
   module Quarantine
     extend SystemCommand::Mixin
 
@@ -18,7 +16,17 @@ module Cask
     COPY_XATTRS_SCRIPT = (HOMEBREW_LIBRARY_PATH/"cask/utils/copy-xattrs.swift").freeze
 
     def self.swift
-      @swift ||= DevelopmentTools.locate("swift")
+      @swift ||= begin
+        # /usr/bin/swift (which runs via xcrun) adds `/usr/local/include` to the top of the include path,
+        # which allows really broken local setups to break our Swift usage here. Using the underlying
+        # Swift executable directly however (returned by `xcrun -find`) avoids this CPATH mess.
+        xcrun_swift = ::Utils.popen_read("/usr/bin/xcrun", "-find", "swift", err: :close).chomp
+        if $CHILD_STATUS.success? && File.executable?(xcrun_swift)
+          xcrun_swift
+        else
+          DevelopmentTools.locate("swift")
+        end
+      end
     end
     private_class_method :swift
 
@@ -208,11 +216,11 @@ module Cask
       # including both file ownership and whether system permissions are granted.
       # Here we just want to check whether sudo would be needed.
       looks_writable_without_sudo = if app.owned?
-        (app.lstat.mode & 0200) != 0
+        app.lstat.mode.anybits?(0200)
       elsif app.grpowned?
-        (app.lstat.mode & 0020) != 0
+        app.lstat.mode.anybits?(0020)
       else
-        (app.lstat.mode & 0002) != 0
+        app.lstat.mode.anybits?(0002)
       end
 
       if looks_writable_without_sudo
