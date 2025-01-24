@@ -1,14 +1,14 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "deprecate_disable"
-require "formula_text_auditor"
+require "formula_versions"
+require "formula_name_cask_token_auditor"
 require "resource_auditor"
+require "utils/shared_audits"
 
 module Homebrew
   # Auditor for checking common violations in {Formula}e.
-  #
-  # @api private
   class FormulaAuditor
     include FormulaCellarChecks
     include Utils::Curl
@@ -32,7 +32,7 @@ module Homebrew
       @core_tap = formula.tap&.core_tap? || options[:core_tap]
       @problems = []
       @new_formula_problems = []
-      @text = FormulaTextAuditor.new(formula.path)
+      @text = formula.path.open("rb", &:read)
       @specs = %w[stable head].filter_map { |s| formula.send(s) }
       @spdx_license_data = options[:spdx_license_data]
       @spdx_exception_data = options[:spdx_exception_data]
@@ -140,27 +140,13 @@ module Homebrew
       @aliases ||= Formula.aliases + Formula.tap_aliases
     end
 
-    def synced_versions_formulae_json
-      @synced_versions_formulae_json ||= JSON.parse(File.read("#{formula.tap.path}/synced_versions_formulae.json"))
-    end
-
-    def synced_with_other_formulae?
-      return false unless formula.tap
-
-      synced_versions_formulae_file = "#{formula.tap.path}/synced_versions_formulae.json"
-      return false unless File.exist?(synced_versions_formulae_file)
-
-      synced_versions_formulae_json.any? { |synced_version_formulae| synced_version_formulae.include?(formula.name) }
-    end
-
     def audit_synced_versions_formulae
-      return unless formula.tap
-      return unless synced_with_other_formulae?
+      return unless formula.synced_with_other_formulae?
 
       name = formula.name
       version = formula.version
 
-      synced_versions_formulae_json.each do |synced_version_formulae|
+      formula.tap.synced_versions_formulae.each do |synced_version_formulae|
         next unless synced_version_formulae.include?(name)
 
         synced_version_formulae.each do |synced_formula|
@@ -175,10 +161,14 @@ module Homebrew
       end
     end
 
-    def audit_formula_name
+    def audit_name
       name = formula.name
 
-      problem "Formula name '#{name}' must not contain uppercase letters." if name != name.downcase
+      name_auditor = Homebrew::FormulaNameCaskTokenAuditor.new(name)
+      if (errors = name_auditor.errors).any?
+        problem "Formula name '#{name}' must not contain #{errors.to_sentence(two_words_connector: " or ",
+                                                                              last_word_connector: " or ")}."
+      end
 
       return unless @strict
       return unless @core_tap
@@ -209,14 +199,34 @@ module Homebrew
       "LGPL-3.0" => ["LGPL-3.0-only", "LGPL-3.0-or-later"],
     }.freeze
 
+    # The following licenses are non-free/open based on multiple sources (e.g. Debian, Fedora, FSF, OSI, ...)
+    INCOMPATIBLE_LICENSES = [
+      "Aladdin",    # https://www.gnu.org/licenses/license-list.html#Aladdin
+      "CPOL-1.02",  # https://www.gnu.org/licenses/license-list.html#cpol
+      "gSOAP-1.3b", # https://salsa.debian.org/ellert/gsoap/-/blob/master/debian/copyright
+      "JSON",       # https://wiki.debian.org/DFSGLicenses#JSON_evil_license
+      "MS-LPL",     # https://github.com/spdx/license-list-XML/issues/1432#issuecomment-1077680709
+      "OPL-1.0",    # https://wiki.debian.org/DFSGLicenses#Open_Publication_License_.28OPL.29_v1.0
+    ].freeze
+    INCOMPATIBLE_LICENSE_PREFIXES = [
+      "BUSL",     # https://spdx.org/licenses/BUSL-1.1.html#notes
+      "CC-BY-NC", # https://people.debian.org/~bap/dfsg-faq.html#no_commercial
+      "Elastic",  # https://www.elastic.co/licensing/elastic-license#Limitations
+      "SSPL",     # https://fedoraproject.org/wiki/Licensing/SSPL#License_Notes
+    ].freeze
+
     def audit_license
       if formula.license.present?
         licenses, exceptions = SPDX.parse_license_expression formula.license
 
-        sspl_licensed = licenses.any? { |license| license.to_s.start_with?("SSPL") }
-        if sspl_licensed && @core_tap
+        incompatible_licenses = licenses.select do |license|
+          license.to_s.start_with?(*INCOMPATIBLE_LICENSE_PREFIXES) || INCOMPATIBLE_LICENSES.include?(license.to_s)
+        end
+        if incompatible_licenses.present? && @core_tap
           problem <<~EOS
-            Formula #{formula.name} is SSPL-licensed. Software under the SSPL must not be packaged in homebrew/core.
+            Formula #{formula.name} contains incompatible licenses: #{incompatible_licenses}.
+            Formulae in homebrew/core must either use a Debian Free Software Guidelines license
+            or be released into the public domain. See #{Formatter.url("https://docs.brew.sh/License-Guidelines")}
           EOS
         end
 
@@ -228,7 +238,7 @@ module Homebrew
           EOS
         end
 
-        if @strict
+        if @strict || @core_tap
           deprecated_licenses = licenses.select do |license|
             SPDX.deprecated_license? license
           end
@@ -256,6 +266,7 @@ module Homebrew
         return if user.blank?
 
         tag = SharedAudits.github_tag_from_url(formula.stable.url)
+        tag ||= formula.stable.specs[:tag]
         github_license = GitHub.get_repo_license(user, repo, ref: tag)
         return unless github_license
         return if (licenses + ["NOASSERTION"]).include?(github_license)
@@ -264,7 +275,7 @@ module Homebrew
 
         problem "Formula license #{licenses} does not match GitHub license #{Array(github_license)}."
 
-      elsif @new_formula && @core_tap
+      elsif @core_tap && !formula.disabled?
         problem "Formulae in homebrew/core must specify a license."
       end
     end
@@ -350,8 +361,9 @@ module Homebrew
             EOS
           end
 
-          # we want to allow uses_from_macos for aliases but not bare dependencies
-          if self.class.aliases.include?(dep.name) && !dep.uses_from_macos?
+          # we want to allow uses_from_macos for aliases but not bare dependencies.
+          # we also allow `pkg-config` for backwards compatibility in external taps.
+          if self.class.aliases.include?(dep.name) && !dep.uses_from_macos? && (dep.name != "pkg-config" || @core_tap)
             problem "Dependency '#{dep.name}' is an alias; use the canonical name '#{dep.to_formula.full_name}'."
           end
 
@@ -467,6 +479,9 @@ module Homebrew
       return unless @core_tap
       return unless Homebrew::SimulateSystem.simulating_or_running_on_linux?
       return unless linux_only_gcc_dep?(formula)
+      # https://github.com/Homebrew/homebrew-core/pull/171634
+      # https://github.com/nghttp2/nghttp2/issues/2194
+      return if formula.tap&.audit_exception(:linux_only_gcc_dependency_allowlist, formula.name)
 
       problem "Formulae in homebrew/core should not have a Linux-only dependency on GCC."
     end
@@ -497,49 +512,30 @@ module Homebrew
               "which allows them to use our Linux bottles, which were compiled against system glibc on CI."
     end
 
-    ELASTICSEARCH_KIBANA_RELICENSED_VERSION = "7.11"
-
-    def audit_elasticsearch_kibana
-      return if formula.name != "elasticsearch" && formula.name != "kibana"
-      return unless @core_tap
-      return if formula.version < Version.new(ELASTICSEARCH_KIBANA_RELICENSED_VERSION)
-
-      problem "Elasticsearch and Kibana were relicensed to a non-open-source license from version 7.11. " \
-              "They must not be upgraded to version 7.11 or newer."
-    end
-
-    # https://www.hashicorp.com/license-faq#products-covered-by-bsl
-    HASHICORP_RELICENSED_FORMULAE_VERSIONS = {
-      "terraform"         => "1.6",
-      "packer"            => "1.10",
-      "vault"             => "1.15",
-      "boundary"          => "0.14",
-      "consul"            => "1.17",
-      "nomad"             => "1.7",
-      "waypoint"          => "0.12",
-      "vagrant"           => "2.4",
-      "vagrant-compleion" => "2.4",
+    RELICENSED_FORMULAE_VERSIONS = {
+      "boundary"           => "0.14",
+      "consul"             => "1.17",
+      "elasticsearch"      => "7.11",
+      "kibana"             => "7.11",
+      "nomad"              => "1.7",
+      "packer"             => "1.10",
+      "redis"              => "7.4",
+      "terraform"          => "1.6",
+      "vagrant"            => "2.4",
+      "vagrant-completion" => "2.4",
+      "vault"              => "1.15",
+      "waypoint"           => "0.12",
     }.freeze
 
-    def audit_hashicorp_formulae
-      return unless HASHICORP_RELICENSED_FORMULAE_VERSIONS.key? formula.name
+    def audit_relicensed_formulae
+      return unless RELICENSED_FORMULAE_VERSIONS.key? formula.name
       return unless @core_tap
 
-      relicensed_version = Version.new(HASHICORP_RELICENSED_FORMULAE_VERSIONS[formula.name])
+      relicensed_version = Version.new(RELICENSED_FORMULAE_VERSIONS[formula.name])
       return if formula.version < relicensed_version
 
       problem "#{formula.name} was relicensed to a non-open-source license from version #{relicensed_version}. " \
               "It must not be upgraded to version #{relicensed_version} or newer."
-    end
-
-    def audit_keg_only_reason
-      return unless @core_tap
-      return unless formula.keg_only?
-
-      keg_only_message = text.to_s.match(/keg_only\s+["'](.*)["']/)&.captures&.first
-      return unless keg_only_message&.include?("HOMEBREW_PREFIX")
-
-      problem "`keg_only` reason should not include `HOMEBREW_PREFIX` as it creates confusing `brew info` output."
     end
 
     def audit_versioned_keg_only
@@ -579,7 +575,7 @@ module Homebrew
         user_agents:       [:browser, :default],
         check_content:     true,
         strict:            @strict,
-        use_homebrew_curl: use_homebrew_curl,
+        use_homebrew_curl:,
       ))
         problem http_content_problem
       end
@@ -597,6 +593,7 @@ module Homebrew
 
     def audit_eol
       return unless @online
+      return unless @core_tap
 
       return if formula.deprecated? || formula.disabled?
 
@@ -608,18 +605,40 @@ module Homebrew
 
       return if formula.tap&.audit_exception :eol_date_blocklist, name
 
-      metadata = SharedAudits.eol_data(name, formula.version.major)
-      metadata ||= SharedAudits.eol_data(name, formula.version.major_minor)
+      metadata = SharedAudits.eol_data(name, formula.version.major.to_s)
+      metadata ||= SharedAudits.eol_data(name, formula.version.major_minor.to_s)
 
-      return if metadata.blank? || metadata["eol"] == false
+      return if metadata.blank? || (eol = metadata["eol"]).blank?
 
-      see_url = "see #{Formatter.url("https://endoflife.date/#{name}")}"
-      if metadata["eol"] == true
-        problem "Product is EOL, #{see_url}"
-        return
+      is_eol = eol == true
+      is_eol ||= eol.is_a?(String) && (eol_date = Date.parse(eol)) <= Date.today
+      return unless is_eol
+
+      message = "Product is EOL"
+      message += " since #{eol_date}" if eol_date.present?
+      message += ", see #{Formatter.url("https://endoflife.date/#{name}")}"
+
+      problem message
+    end
+
+    def audit_wayback_url
+      return unless @core_tap
+      return if formula.deprecated? || formula.disabled?
+
+      regex = %r{^https?://web\.archive\.org}
+      problem_prefix = "Formula with a Internet Archive Wayback Machine"
+
+      problem "#{problem_prefix} `url` should be deprecated with `:repo_removed`" if regex.match?(formula.stable.url)
+
+      if regex.match?(formula.homepage)
+        problem "#{problem_prefix} `homepage` should find an alternative `homepage` or be deprecated."
       end
 
-      problem "Product is EOL since #{metadata["eol"]}, #{see_url}" if Date.parse(metadata["eol"]) <= Date.today
+      return unless formula.head
+
+      return unless regex.match?(formula.head.url)
+
+      problem "Remove Internet Archive Wayback Machine `head` URL"
     end
 
     def audit_github_repository_archived
@@ -706,7 +725,7 @@ module Homebrew
 
         ra = ResourceAuditor.new(
           spec, spec_name,
-          online: @online, strict: @strict, only: @only, except: except,
+          online: @online, strict: @strict, only: @only, except:,
           use_homebrew_curl: spec.using == :homebrew_curl
         ).audit
         ra.problems.each do |message|
@@ -758,7 +777,7 @@ module Homebrew
       stable_url_minor_version = stable_url_version.minor.to_i
 
       formula_suffix = stable.version.patch.to_i
-      throttled_rate = formula.tap&.audit_exception(:throttled_formulae, formula.name)
+      throttled_rate = formula.livecheck.throttle
       if throttled_rate && formula_suffix.modulo(throttled_rate).nonzero?
         problem "should only be updated every #{throttled_rate} releases on multiples of #{throttled_rate}"
       end
@@ -787,25 +806,25 @@ module Homebrew
         problem "#{stable.version} is a development release"
 
       when %r{https?://gitlab\.com/([\w-]+)/([\w-]+)}
-        owner = Regexp.last_match(1)
-        repo = Regexp.last_match(2)
+        owner = T.must(Regexp.last_match(1))
+        repo = T.must(Regexp.last_match(2))
 
         tag = SharedAudits.gitlab_tag_from_url(url)
         tag ||= stable.specs[:tag]
-        tag ||= stable.version
+        tag ||= stable.version.to_s
 
         if @online
-          error = SharedAudits.gitlab_release(owner, repo, tag, formula: formula)
+          error = SharedAudits.gitlab_release(owner, repo, tag, formula:)
           problem error if error
         end
       when %r{^https://github.com/([\w-]+)/([\w-]+)}
-        owner = Regexp.last_match(1)
-        repo = Regexp.last_match(2)
+        owner = T.must(Regexp.last_match(1))
+        repo = T.must(Regexp.last_match(2))
         tag = SharedAudits.github_tag_from_url(url)
         tag ||= formula.stable.specs[:tag]
 
-        if @online
-          error = SharedAudits.github_release(owner, repo, tag, formula: formula)
+        if @online && !tag.nil?
+          error = SharedAudits.github_release(owner, repo, tag, formula:)
           problem error if error
         end
       end
@@ -930,7 +949,7 @@ module Homebrew
       problem <<~EOS
         #{formula.name} seems to be listed in tap_migrations.json!
         Please remove #{formula.name} from present tap & tap_migrations.json
-        before submitting it to Homebrew/homebrew-#{formula.tap.repo}.
+        before submitting it to Homebrew/homebrew-#{formula.tap.repository}.
       EOS
     end
 
@@ -943,6 +962,11 @@ module Homebrew
         is set correctly and expected files are installed.
         The prefix configure/make argument may be case-sensitive.
       EOS
+    end
+
+    def audit_deprecate_disable
+      error = SharedAudits.check_deprecate_disable_reason(formula)
+      problem error if error
     end
 
     def quote_dep(dep)
@@ -969,11 +993,11 @@ module Homebrew
     private
 
     def problem(message, location: nil, corrected: false)
-      @problems << ({ message: message, location: location, corrected: corrected })
+      @problems << ({ message:, location:, corrected: })
     end
 
     def new_formula_problem(message, location: nil, corrected: false)
-      @new_formula_problems << ({ message: message, location: location, corrected: corrected })
+      @new_formula_problems << ({ message:, location:, corrected: })
     end
 
     def head_only?(formula)
@@ -989,7 +1013,7 @@ module Homebrew
       return false if variations.blank?
 
       MacOSVersion::SYMBOLS.keys.product(OnSystem::ARCH_OPTIONS).each do |os, arch|
-        bottle_tag = Utils::Bottles::Tag.new(system: os, arch: arch)
+        bottle_tag = Utils::Bottles::Tag.new(system: os, arch:)
         next unless bottle_tag.valid_combination?
 
         variation_dependencies = variations.dig(bottle_tag.to_sym, "dependencies")

@@ -8,24 +8,26 @@ require "extend/module"
 # In the future we should consider not doing this monkey patch,
 # if assured that there is no performance hit from removing this.
 # There are mechanisms to achieve a middle ground (`default_checked_level`).
-unless ENV["HOMEBREW_SORBET_RUNTIME"]
-  # Redefine T.let etc to make the `checked` parameter default to false rather than true.
+if ENV["HOMEBREW_SORBET_RUNTIME"]
+  T::Configuration.enable_final_checks_on_hooks
+else
+  # Redefine `T.let`, etc. to make the `checked` parameter default to `false` rather than `true`.
   # @private
   module TNoChecks
     def cast(value, type, checked: false)
-      super(value, type, checked: checked)
+      super
     end
 
     def let(value, type, checked: false)
-      super(value, type, checked: checked)
+      super
     end
 
     def bind(value, type, checked: false)
-      super(value, type, checked: checked)
+      super
     end
 
     def assert_type!(value, type, checked: false)
-      super(value, type, checked: checked)
+      super
     end
   end
 
@@ -35,8 +37,7 @@ unless ENV["HOMEBREW_SORBET_RUNTIME"]
       prepend TNoChecks
     end
 
-    # Redefine T.sig to be noop.
-    # @private
+    # Redefine `T.sig` to be a no-op.
     module Sig
       def sig(arg0 = nil, &blk); end
     end

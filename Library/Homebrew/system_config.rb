@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "hardware"
@@ -6,10 +6,9 @@ require "software_spec"
 require "development_tools"
 require "extend/ENV"
 require "system_command"
+require "git_repository"
 
 # Helper module for querying information about the system configuration.
-#
-# @api private
 module SystemConfig
   class << self
     include SystemCommand::Mixin
@@ -33,6 +32,11 @@ module SystemConfig
     sig { returns(GitRepository) }
     def homebrew_repo
       GitRepository.new(HOMEBREW_REPOSITORY)
+    end
+
+    sig { returns(String) }
+    def branch
+      homebrew_repo.branch_name || "(none)"
     end
 
     sig { returns(String) }
@@ -143,6 +147,7 @@ module SystemConfig
       out.puts "ORIGIN: #{origin}"
       out.puts "HEAD: #{head}"
       out.puts "Last commit: #{last_commit}"
+      out.puts "Branch: #{branch}"
     end
 
     def homebrew_env_config(out = $stdout)

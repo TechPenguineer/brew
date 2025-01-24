@@ -30,7 +30,7 @@ RSpec.describe Formula do
     let(:alias_name) { "baz@1" }
     let(:alias_path) { CoreTap.instance.alias_dir/alias_name }
     let(:f) { klass.new(name, path, spec) }
-    let(:f_alias) { klass.new(name, path, spec, alias_path: alias_path) }
+    let(:f_alias) { klass.new(name, path, spec, alias_path:) }
 
     specify "formula instantiation" do
       expect(f.name).to eq(name)
@@ -42,6 +42,7 @@ RSpec.describe Formula do
       expect(f.alias_name).to be_nil
       expect(f.full_alias_name).to be_nil
       expect(f.specified_path).to eq(path)
+      [:build, :test, :postinstall].each { |phase| expect(f.network_access_allowed?(phase)).to be(true) }
       expect { klass.new }.to raise_error(ArgumentError)
     end
 
@@ -55,14 +56,20 @@ RSpec.describe Formula do
       expect(f_alias.specified_path).to eq(Pathname(alias_path))
       expect(f_alias.full_alias_name).to eq(alias_name)
       expect(f_alias.full_specified_name).to eq(alias_name)
+      [:build, :test, :postinstall].each { |phase| expect(f_alias.network_access_allowed?(phase)).to be(true) }
       expect { klass.new }.to raise_error(ArgumentError)
     end
 
+    specify "formula instantiation without a subclass" do
+      expect { described_class.new(name, path, spec) }
+        .to raise_error(RuntimeError, "Do not call `Formula.new' directly without a subclass.")
+    end
+
     context "when in a Tap" do
-      let(:tap) { Tap.new("foo", "bar") }
+      let(:tap) { Tap.fetch("foo", "bar") }
       let(:path) { (tap.path/"Formula/#{name}.rb") }
-      let(:full_name) { "#{tap.user}/#{tap.repo}/#{name}" }
-      let(:full_alias_name) { "#{tap.user}/#{tap.repo}/#{alias_name}" }
+      let(:full_name) { "#{tap.user}/#{tap.repository}/#{name}" }
+      let(:full_alias_name) { "#{tap.user}/#{tap.repository}/#{alias_name}" }
 
       specify "formula instantiation" do
         expect(f.name).to eq(name)
@@ -204,10 +211,10 @@ RSpec.describe Formula do
   end
 
   example "installed alias with tap" do
-    tap = Tap.new("user", "repo")
+    tap = Tap.fetch("user", "repo")
     name = "foo"
     path = tap.path/"Formula/#{name}.rb"
-    f = formula name, path: path do
+    f = formula(name, path:) do
       url "foo-1.0"
     end
 
@@ -226,7 +233,7 @@ RSpec.describe Formula do
 
     alias_name = "bar"
     alias_path = tap.alias_dir/alias_name
-    full_alias_name = "#{tap.user}/#{tap.repo}/#{alias_name}"
+    full_alias_name = "#{tap.user}/#{tap.repository}/#{alias_name}"
     tap.alias_dir.mkpath
     FileUtils.ln_sf f.path, alias_path
 
@@ -262,7 +269,7 @@ RSpec.describe Formula do
 
     prefix = HOMEBREW_CELLAR/f.name/"0.1"
     prefix.mkpath
-    FileUtils.touch prefix/Tab::FILENAME
+    FileUtils.touch prefix/AbstractTab::FILENAME
 
     expect(f).to have_any_version_installed
   end
@@ -277,7 +284,7 @@ RSpec.describe Formula do
 
     oldname_prefix.mkpath
     oldname_tab = Tab.empty
-    oldname_tab.tabfile = oldname_prefix/Tab::FILENAME
+    oldname_tab.tabfile = oldname_prefix/AbstractTab::FILENAME
     oldname_tab.write
 
     expect(f).not_to need_migration
@@ -344,7 +351,7 @@ RSpec.describe Formula do
       head_prefix.mkpath
 
       tab = Tab.empty
-      tab.tabfile = head_prefix/Tab::FILENAME
+      tab.tabfile = head_prefix/AbstractTab::FILENAME
       tab.source["versions"] = { "stable" => "1.0" }
       tab.write
 
@@ -376,7 +383,7 @@ RSpec.describe Formula do
         prefix.mkpath
 
         tab = Tab.empty
-        tab.tabfile = prefix/Tab::FILENAME
+        tab.tabfile = prefix/AbstractTab::FILENAME
         tab.source_modified_time = stamp
         tab.write
       end
@@ -417,7 +424,7 @@ RSpec.describe Formula do
     example "alias paths with build options" do
       alias_path = (CoreTap.instance.alias_dir/"another_name")
 
-      f = formula alias_path: alias_path do
+      f = formula(alias_path:) do
         url "foo-1.0"
       end
       f.build = BuildOptions.new(Options.new, f.options)
@@ -430,7 +437,7 @@ RSpec.describe Formula do
       alias_path = (CoreTap.instance.alias_dir/"another_name")
       source_path = CoreTap.instance.new_formula_path("another_other_name")
 
-      f = formula alias_path: alias_path do
+      f = formula(alias_path:) do
         url "foo-1.0"
       end
       f.build = Tab.new(source: { "path" => source_path.to_s })
@@ -443,7 +450,7 @@ RSpec.describe Formula do
       alias_path = (CoreTap.instance.alias_dir/"another_name")
       source_path = (CoreTap.instance.alias_dir/"another_other_name")
 
-      f = formula alias_path: alias_path do
+      f = formula(alias_path:) do
         url "foo-1.0"
       end
       f.build = Tab.new(source: { "path" => source_path.to_s })
@@ -697,16 +704,16 @@ RSpec.describe Formula do
     expect(f.livecheck.regex).to eq(/test-v?(\d+(?:\.\d+)+)\.t/i)
   end
 
-  describe "#livecheckable?" do
-    specify "no livecheck block defined" do
+  describe "#livecheck_defined?" do
+    specify "no `livecheck` block defined" do
       f = formula do
         url "https://brew.sh/test-1.0.tbz"
       end
 
-      expect(f.livecheckable?).to be false
+      expect(f.livecheck_defined?).to be false
     end
 
-    specify "livecheck block defined" do
+    specify "`livecheck` block defined" do
       f = formula do
         url "https://brew.sh/test-1.0.tbz"
         livecheck do
@@ -714,7 +721,7 @@ RSpec.describe Formula do
         end
       end
 
-      expect(f.livecheckable?).to be true
+      expect(f.livecheck_defined?).to be true
     end
 
     specify "livecheck references Formula URL" do
@@ -847,7 +854,7 @@ RSpec.describe Formula do
       allow(tap_loader).to receive(:get_formula).and_raise(RuntimeError, "tried resolving tap formula")
       allow(Formulary).to receive(:loader_for).with("foo/bar/f1", from: nil).and_return(tap_loader)
 
-      f2_path = Tap.new("baz", "qux").path/"Formula/f2.rb"
+      f2_path = Tap.fetch("baz", "qux").path/"Formula/f2.rb"
       stub_formula_loader(formula("f2", path: f2_path) { url("f2-1.0") }, "baz/qux/f2")
 
       f3 = formula "f3" do
@@ -859,7 +866,7 @@ RSpec.describe Formula do
 
       expect(f3.runtime_dependencies.map(&:name)).to eq(["baz/qux/f2"])
 
-      f1_path = Tap.new("foo", "bar").path/"Formula/f1.rb"
+      f1_path = Tap.fetch("foo", "bar").path/"Formula/f1.rb"
       stub_formula_loader(formula("f1", path: f1_path) { url("f1-1.0") }, "foo/bar/f1")
 
       f3.build = BuildOptions.new(Options.create(["--with-f1"]), f3.options)
@@ -956,7 +963,7 @@ RSpec.describe Formula do
   end
 
   describe "#to_hash_with_variations", :needs_macos do
-    let(:formula_path) { CoreTap.new.new_formula_path("foo-variations") }
+    let(:formula_path) { CoreTap.instance.new_formula_path("foo-variations") }
     let(:formula_content) do
       <<~RUBY
         class FooVariations < Formula
@@ -1104,7 +1111,7 @@ RSpec.describe Formula do
         prefix = f.prefix(version)
         prefix.mkpath
         tab = Tab.empty
-        tab.tabfile = prefix/Tab::FILENAME
+        tab.tabfile = prefix/AbstractTab::FILENAME
         tab.source_modified_time = 1
         tab.write
       end
@@ -1227,13 +1234,13 @@ RSpec.describe Formula do
 
   describe "alias changes" do
     let(:f) do
-      formula "formula_name", alias_path: alias_path do
+      formula("formula_name", alias_path:) do
         url "foo-1.0"
       end
     end
 
     let(:new_formula) do
-      formula "new_formula_name", alias_path: alias_path do
+      formula("new_formula_name", alias_path:) do
         url "foo-1.1"
       end
     end
@@ -1338,7 +1345,7 @@ RSpec.describe Formula do
     def setup_tab_for_prefix(prefix, options = {})
       prefix.mkpath
       tab = Tab.empty
-      tab.tabfile = prefix/Tab::FILENAME
+      tab.tabfile = prefix/AbstractTab::FILENAME
       tab.source["path"] = options[:path].to_s if options[:path]
       tab.source["tap"] = options[:tap] if options[:tap]
       tab.source["versions"] = options[:versions] if options[:versions]
@@ -1415,7 +1422,7 @@ RSpec.describe Formula do
     end
 
     example "outdated old alias targets installed" do
-      f = formula alias_path: alias_path do
+      f = formula(alias_path:) do
         url "foo-1.0"
       end
 
@@ -1430,7 +1437,7 @@ RSpec.describe Formula do
     end
 
     example "outdated old alias targets not installed" do
-      f = formula alias_path: alias_path do
+      f = formula(alias_path:) do
         url "foo-1.0"
       end
 
@@ -1543,7 +1550,7 @@ RSpec.describe Formula do
         described_class.clear_cache
         expect(f.outdated_kegs(fetch_head: true)).not_to be_empty
 
-        head_prefix_a.rmtree
+        FileUtils.rm_r(head_prefix_a)
         described_class.clear_cache
         expect(f.outdated_kegs(fetch_head: true)).not_to be_empty
 
@@ -1551,7 +1558,7 @@ RSpec.describe Formula do
         described_class.clear_cache
         expect(f.outdated_kegs(fetch_head: true)).to be_empty
       ensure
-        testball_repo.rmtree if testball_repo.exist?
+        FileUtils.rm_r(testball_repo) if testball_repo.exist?
       end
     end
 
@@ -1630,7 +1637,7 @@ RSpec.describe Formula do
         expect(f.outdated_kegs).not_to be_empty
 
         described_class.clear_cache
-        head_prefix.rmtree
+        FileUtils.rm_r(head_prefix)
 
         setup_tab_for_prefix(head_prefix, versions: { "stable" => "1.0", "version_scheme" => 2 })
         expect(f.outdated_kegs).to be_empty
@@ -1890,9 +1897,82 @@ RSpec.describe Formula do
 
     it "generates completion scripts" do
       f.brew { f.install }
-      expect(f.bash_completion/"testball").to be_a_file
-      expect(f.zsh_completion/"_testball").to be_a_file
-      expect(f.fish_completion/"testball.fish").to be_a_file
+      expect(f.bash_completion/"foo").to be_a_file
+      expect(f.zsh_completion/"_foo").to be_a_file
+      expect(f.fish_completion/"foo.fish").to be_a_file
+    end
+  end
+
+  describe "{allow,deny}_network_access" do
+    phases = [:build, :postinstall, :test].freeze
+    actions = %w[allow deny].freeze
+    phases.each do |phase|
+      actions.each do |action|
+        it "can #{action} network access for #{phase}" do
+          f = Class.new(Testball) do
+            send(:"#{action}_network_access!", phase)
+          end
+
+          expect(f.network_access_allowed?(phase)).to be(action == "allow")
+        end
+      end
+    end
+
+    actions.each do |action|
+      it "can #{action} network access for all phases" do
+        f = Class.new(Testball) do
+          send(:"#{action}_network_access!")
+        end
+
+        phases.each do |phase|
+          expect(f.network_access_allowed?(phase)).to be(action == "allow")
+        end
+      end
+    end
+  end
+
+  describe "#network_access_allowed?" do
+    it "throws an error when passed an invalid symbol" do
+      f = Testball.new
+      expect { f.network_access_allowed?(:foo) }.to raise_error(ArgumentError)
+    end
+  end
+
+  describe "#specified_path" do
+    let(:klass) do
+      Class.new(described_class) do
+        url "https://brew.sh/foo-1.0.tar.gz"
+      end
+    end
+
+    let(:name) { "formula_name" }
+    let(:path) { Formulary.core_path(name) }
+    let(:spec) { :stable }
+    let(:alias_name) { "baz@1" }
+    let(:alias_path) { CoreTap.instance.alias_dir/alias_name }
+    let(:f) { klass.new(name, path, spec) }
+    let(:f_alias) { klass.new(name, path, spec, alias_path:) }
+
+    context "when loading from a formula file" do
+      it "returns the formula file path" do
+        expect(f.specified_path).to eq(path)
+      end
+    end
+
+    context "when loaded from an alias" do
+      it "returns the alias path" do
+        expect(f_alias.specified_path).to eq(alias_path)
+      end
+    end
+
+    context "when loaded from the API" do
+      before do
+        allow(f).to receive(:loaded_from_api?).and_return(true)
+      end
+
+      it "returns the API path" do
+        expect(f.specified_path).to eq(Homebrew::API::Formula.cached_json_file_path)
+      end
     end
   end
 end

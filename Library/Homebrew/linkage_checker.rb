@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "keg"
@@ -7,8 +7,6 @@ require "linkage_cache_store"
 require "fiddle"
 
 # Check for broken/missing linkage in a formula's keg.
-#
-# @api private
 class LinkageChecker
   attr_reader :undeclared_deps, :keg, :formula, :store
 
@@ -31,7 +29,7 @@ class LinkageChecker
     @files_missing_rpaths = []
     @executable_path_dylibs = []
 
-    check_dylibs(rebuild_cache: rebuild_cache)
+    check_dylibs(rebuild_cache:)
   end
 
   def display_normal_output
@@ -63,15 +61,16 @@ class LinkageChecker
   end
 
   def display_test_output(puts_output: true, strict: false)
-    display_items "Missing libraries", @broken_dylibs, puts_output: puts_output
-    display_items "Broken dependencies", @broken_deps, puts_output: puts_output
-    display_items "Unwanted system libraries", @unwanted_system_dylibs, puts_output: puts_output
-    display_items "Conflicting libraries", @version_conflict_deps, puts_output: puts_output
+    display_items("Missing libraries", @broken_dylibs, puts_output:)
+    display_items("Broken dependencies", @broken_deps, puts_output:)
+    display_items("Unwanted system libraries", @unwanted_system_dylibs, puts_output:)
+    display_items("Conflicting libraries", @version_conflict_deps, puts_output:)
     return unless strict
 
-    display_items "Undeclared dependencies with linkage", @undeclared_deps, puts_output: puts_output
-    display_items "Files with missing rpath", @files_missing_rpaths, puts_output: puts_output
-    display_items "@executable_path references in libraries", @executable_path_dylibs, puts_output: puts_output
+    display_items("Indirect dependencies with linkage", @indirect_deps, puts_output:)
+    display_items("Undeclared dependencies with linkage", @undeclared_deps, puts_output:)
+    display_items("Files with missing rpath", @files_missing_rpaths, puts_output:)
+    display_items "@executable_path references in libraries", @executable_path_dylibs, puts_output:
   end
 
   sig { params(test: T::Boolean, strict: T::Boolean).returns(T::Boolean) }
@@ -81,7 +80,7 @@ class LinkageChecker
     issues = [@broken_deps, @broken_dylibs]
     if test
       issues += [@unwanted_system_dylibs, @version_conflict_deps]
-      issues += [@undeclared_deps, @files_missing_rpaths, @executable_path_dylibs] if strict
+      issues += [@indirect_deps, @undeclared_deps, @files_missing_rpaths, @executable_path_dylibs] if strict
     end
     issues.any?(&:present?)
   end
@@ -91,6 +90,13 @@ class LinkageChecker
   def dylib_to_dep(dylib)
     dylib =~ %r{#{Regexp.escape(HOMEBREW_PREFIX)}/(opt|Cellar)/([\w+-.@]+)/}o
     Regexp.last_match(2)
+  end
+
+  sig { params(file: String).returns(T::Boolean) }
+  def broken_dylibs_allowed?(file)
+    return false if formula.name != "julia"
+
+    file.start_with?("#{formula.prefix.realpath}/share/julia/compiled/")
   end
 
   def check_dylibs(rebuild_cache:)
@@ -109,11 +115,12 @@ class LinkageChecker
       @keg.find do |file|
         next if file.symlink? || file.directory?
         next if !file.dylib? && !file.binary_executable? && !file.mach_o_bundle?
+        next unless file.arch_compatible?(Hardware::CPU.arch)
 
         # weakly loaded dylibs may not actually exist on disk, so skip them
         # when checking for broken linkage
         keg_files_dylibs[file] =
-          file.dynamically_linked_libraries(except: :LC_LOAD_WEAK_DYLIB)
+          file.dynamically_linked_libraries(except: :DYLIB_USE_WEAK_LINK)
       end
     end
 
@@ -129,7 +136,7 @@ class LinkageChecker
         if !file_has_any_rpath_dylibs && (dylib.start_with? "@rpath/")
           file_has_any_rpath_dylibs = true
           pathname = Pathname(file)
-          @files_missing_rpaths << file if pathname.rpaths.empty?
+          @files_missing_rpaths << file if pathname.rpaths.empty? && !broken_dylibs_allowed?(file.to_s)
         end
 
         next if checked_dylibs.include? dylib
@@ -145,7 +152,7 @@ class LinkageChecker
         end
 
         begin
-          owner = Keg.for Pathname.new(dylib)
+          owner = Keg.for(Pathname(dylib))
         rescue NotAKegError
           @system_dylibs << dylib
         rescue Errno::ENOENT
@@ -153,15 +160,15 @@ class LinkageChecker
 
           if (dep = dylib_to_dep(dylib))
             @broken_deps[dep] |= [dylib]
-          elsif system_libraries_exist_in_cache? && dylib_found_via_dlopen(dylib)
+          elsif system_libraries_exist_in_cache? && dylib_found_in_shared_cache?(dylib)
             # If we cannot associate the dylib with a dependency, then it may be a system library.
-            # If dlopen finds the dylib, then the linkage is not broken.
+            # Check the dylib shared cache for the library to verify this.
             @system_dylibs << dylib
-          elsif !system_framework?(dylib)
+          elsif !system_framework?(dylib) && !broken_dylibs_allowed?(file.to_s)
             @broken_dylibs << dylib
           end
         else
-          tap = Tab.for_keg(owner).tap
+          tap = owner.tab.tap
           f = if tap.nil? || tap.core_tap?
             owner.name
           else
@@ -179,7 +186,7 @@ class LinkageChecker
 
     return unless keg_files_dylibs_was_empty
 
-    store&.update!(keg_files_dylibs: keg_files_dylibs)
+    store&.update!(keg_files_dylibs:)
   end
   alias generic_check_dylibs check_dylibs
 
@@ -188,16 +195,23 @@ class LinkageChecker
   end
   alias generic_system_libraries_exist_in_cache? system_libraries_exist_in_cache?
 
-  def dylib_found_via_dlopen(dylib)
-    Fiddle.dlopen(dylib).close
-    true
-  rescue Fiddle::DLError
-    false
+  def dylib_found_in_shared_cache?(dylib)
+    @dyld_shared_cache_contains_path ||= begin
+      libc = Fiddle.dlopen("/usr/lib/libSystem.B.dylib")
+
+      Fiddle::Function.new(
+        libc["_dyld_shared_cache_contains_path"],
+        [Fiddle::TYPE_CONST_STRING],
+        Fiddle::TYPE_BOOL,
+      )
+    end
+
+    @dyld_shared_cache_contains_path.call(dylib)
   end
 
   def check_formula_deps
     filter_out = proc do |dep|
-      next true if dep.build?
+      next true if dep.build? || dep.test?
 
       (dep.optional? || dep.recommended?) && formula.build.without?(dep)
     end

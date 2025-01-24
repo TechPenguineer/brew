@@ -12,14 +12,12 @@ inherit_mode:
     - Exclude
 
 AllCops:
-  TargetRubyVersion: 3.1
+  TargetRubyVersion: 3.3
   NewCops: enable
   Include:
-    # FIXME: https://github.com/rubocop/rubocop/issues/12695
-    - "Homebrew/**/*.rbi"
+    - "**/*.rbi"
   Exclude:
     - "Homebrew/sorbet/rbi/{dsl,gems}/**/*.rbi"
-    - "Homebrew/sorbet/rbi/parlour.rbi"
     - "Homebrew/bin/*"
     - "Homebrew/vendor/**/*"
     - "Taps/*/*/vendor/**/*"
@@ -30,8 +28,8 @@ Cask/Desc:
   Description: "Ensure that the desc stanza conforms to various content and style checks."
   Enabled: true
 
-Cask/HomepageUrlTrailingSlash:
-  Description: "Ensure that the homepage url has a slash after the domain name."
+Cask/HomepageUrlStyling:
+  Description: "Ensure that the homepage url has the correct format and styling."
   Enabled: true
 
 Cask/StanzaGrouping:
@@ -60,6 +58,11 @@ Homebrew/CompactBlank:
   Exclude:
     # `blank?` is not necessarily available here:
     - "Homebrew/extend/enumerable.rb"
+
+Homebrew/NoFileutilsRmrf:
+  Include:
+    - "/**/{Formula,Casks}/**/*.rb"
+    - "**/{Formula,Casks}/**/*.rb"
 
 # only used internally
 Homebrew/MoveToExtendOS:
@@ -113,7 +116,6 @@ Layout/LineLength:
       ' url "',
       ' mirror "',
       " plist_options ",
-      ' appcast "',
       ' executable: "',
       ' font "',
       ' homepage "',
@@ -223,14 +225,10 @@ Performance/MethodObjectAsBlock:
 
 RSpec:
   Include:
-    - 'Homebrew/test/**/*'
+    - "Homebrew/test/**/*"
 
 # Intentionally disabled as it doesn't fit with our code style.
 RSpec/AnyInstance:
-  Enabled: false
-RSpec/DescribeClass:
-  Enabled: false
-RSpec/FilePath:
   Enabled: false
 RSpec/SpecFilePathFormat:
   Enabled: false
@@ -238,11 +236,6 @@ RSpec/StubbedMock:
   Enabled: false
 RSpec/SubjectStub:
   Enabled: false
-
-# We use `allow(:foo).to receive(:bar)` everywhere.
-RSpec/MessageSpies:
-  EnforcedStyle: receive
-
 # These were ever-growing numbers, not useful.
 RSpec/ExampleLength:
   Enabled: false
@@ -253,9 +246,14 @@ RSpec/NestedGroups:
 RSpec/MultipleMemoizedHelpers:
   Enabled: false
 
+RSpec/DescribedClassModuleWrapping:
+  Enabled: true
 # Annoying to have these autoremoved.
 RSpec/Focus:
   AutoCorrect: false
+# We use `allow(:foo).to receive(:bar)` everywhere.
+RSpec/MessageSpies:
+  EnforcedStyle: receive
 
 # Try getting rid of these.
 Sorbet/ConstantsFromStrings:
@@ -273,13 +271,22 @@ Sorbet/ForbidRBIOutsideOfAllowedPaths:
 Sorbet/RedundantExtendTSig:
   Enabled: true
 
+# We make limited and intentional use of refinements.
+# It's posssible this may change in the future, though we probably still do not want to ban it in taps
+# and Sorbet typecheck will tell us what is and isn't a problem anyway.
+# Right now, our use of refinements isn't problematic (or at least not yet).
+Sorbet/Refinement:
+  Enabled: false
+
 Sorbet/StrictSigil:
   Enabled: true
-  inherit_mode:
-    override:
-      - Include
-  Include:
-    - "**/*.rbi"
+  Exclude:
+    - "Taps/**/*"
+    - "/**/{Formula,Casks}/**/*.rb"
+    - "**/{Formula,Casks}/**/*.rb"
+    - "Homebrew/utils/ruby_check_version_script.rb" # A standalone script.
+    - "Homebrew/{standalone,startup}/*.rb" # These are loaded before sorbet-runtime
+    - "Homebrew/test/**/*.rb"
 
 Sorbet/TrueSigil:
   Enabled: true
@@ -333,6 +340,11 @@ Style/Documentation:
     - "**/{Formula,Casks}/**/*.rb"
     - "**/*.rbi"
 
+# This is impossible to fix if the line exceeds the maximum length.
+Style/EmptyMethod:
+  Exclude:
+    - "**/*.rbi"
+
 # This is quite a large change, so don't enforce this yet for formulae.
 # We should consider doing so in the future, but be aware of the impact on third-party taps.
 Style/FetchEnvVar:
@@ -366,9 +378,6 @@ Style/HashAsLastArrayItem:
     - "/**/Formula/**/*.rb"
     - "**/Formula/**/*.rb"
 
-Style/HashSyntax:
-  EnforcedShorthandSyntax: either
-
 Style/InverseMethods:
   InverseMethods:
     :blank?: :present?
@@ -400,10 +409,18 @@ Style/NumericLiterals:
 Style/OpenStructUse:
   Exclude:
     - "Taps/**/*"
-    # TODO: This is a pre-existing violation and should be corrected
-    #   to define methods so that call sites can be type-checked.
-    - "Homebrew/cli/args.rb"
-    - "Homebrew/cli/args.rbi"
+
+Style/OptionalBooleanParameter:
+  AllowedMethods:
+    # These are overrides of core library methods
+    # see https://ruby-doc.org/3.3.4/Object.html#method-i-respond_to-3F
+    - respond_to?
+    - respond_to_missing?
+
+# Broken in RuboCop 1.68.0 so tries to fix line continuations in inline patch blocks:
+# https://github.com/Homebrew/brew/actions/runs/11653110391/job/32460881827?pr=18682
+Style/RedundantLineContinuation:
+  Enabled: false
 
 # Rescuing `StandardError` is an understood default.
 Style/RescueStandardError:

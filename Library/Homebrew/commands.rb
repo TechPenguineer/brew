@@ -1,11 +1,7 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
-require "completions"
-
 # Helper functions for commands.
-#
-# @api private
 module Commands
   HOMEBREW_CMD_PATH = (HOMEBREW_LIBRARY_PATH/"cmd").freeze
   HOMEBREW_DEV_CMD_PATH = (HOMEBREW_LIBRARY_PATH/"dev-cmd").freeze
@@ -45,6 +41,11 @@ module Commands
     require?(HOMEBREW_DEV_CMD_PATH/cmd)
   end
 
+  def self.valid_ruby_cmd?(cmd)
+    (valid_internal_cmd?(cmd) || valid_internal_dev_cmd?(cmd) || external_ruby_v2_cmd_path(cmd)) &&
+      Homebrew::AbstractCommand.command(cmd)&.ruby_cmd?
+  end
+
   def self.method_name(cmd)
     cmd.to_s
        .tr("-", "_")
@@ -74,17 +75,17 @@ module Commands
 
   # Ruby commands which can be `require`d without being run.
   def self.external_ruby_v2_cmd_path(cmd)
-    path = which("#{cmd}.rb", Tap.cmd_directories)
+    path = which("#{cmd}.rb", tap_cmd_directories)
     path if require?(path)
   end
 
   # Ruby commands which are run by being `require`d.
   def self.external_ruby_cmd_path(cmd)
-    which("brew-#{cmd}.rb", PATH.new(ENV.fetch("PATH")).append(Tap.cmd_directories))
+    which("brew-#{cmd}.rb", PATH.new(ENV.fetch("PATH")).append(tap_cmd_directories))
   end
 
   def self.external_cmd_path(cmd)
-    which("brew-#{cmd}", PATH.new(ENV.fetch("PATH")).append(Tap.cmd_directories))
+    which("brew-#{cmd}", PATH.new(ENV.fetch("PATH")).append(tap_cmd_directories))
   end
 
   def self.path(cmd)
@@ -105,6 +106,12 @@ module Commands
     cmds.sort
   end
 
+  # An array of all tap cmd directory {Pathname}s.
+  sig { returns(T::Array[Pathname]) }
+  def self.tap_cmd_directories
+    Pathname.glob HOMEBREW_TAP_DIRECTORY/"*/*/cmd"
+  end
+
   def self.internal_commands_paths
     find_commands HOMEBREW_CMD_PATH
   end
@@ -114,9 +121,11 @@ module Commands
   end
 
   def self.official_external_commands_paths(quiet:)
+    require "tap"
+
     OFFICIAL_CMD_TAPS.flat_map do |tap_name, cmds|
       tap = Tap.fetch(tap_name)
-      tap.install(quiet: quiet) unless tap.installed?
+      tap.install(quiet:) unless tap.installed?
       cmds.map(&method(:external_ruby_v2_cmd_path)).compact
     end
   end
@@ -135,13 +144,14 @@ module Commands
 
   def self.find_internal_commands(path)
     find_commands(path).map(&:basename)
-                       .map(&method(:basename_without_extension))
+                       .map { basename_without_extension(_1) }
+                       .uniq
   end
 
   def self.external_commands
-    Tap.cmd_directories.flat_map do |path|
+    tap_cmd_directories.flat_map do |path|
       find_commands(path).select(&:executable?)
-                         .map(&method(:basename_without_extension))
+                         .map { basename_without_extension(_1) }
                          .map { |p| p.to_s.delete_prefix("brew-").strip }
     end.map(&:to_s)
        .sort
@@ -158,6 +168,8 @@ module Commands
   end
 
   def self.rebuild_internal_commands_completion_list
+    require "completions"
+
     cmds = internal_commands + internal_developer_commands + internal_commands_aliases
     cmds.reject! { |cmd| Homebrew::Completions::COMPLETIONS_EXCLUSION_LIST.include? cmd }
 
@@ -166,6 +178,8 @@ module Commands
   end
 
   def self.rebuild_commands_completion_list
+    require "completions"
+
     # Ensure that the cache exists so we can build the commands list
     HOMEBREW_CACHE.mkpath
 
@@ -177,12 +191,15 @@ module Commands
     external_commands_file.atomic_write("#{external_commands.sort.join("\n")}\n")
   end
 
+  sig { params(command: String).returns(T.nilable(T::Array[[String, String]])) }
   def self.command_options(command)
+    return if command == "help"
+
     path = self.path(command)
     return if path.blank?
 
     if (cmd_parser = Homebrew::CLI::Parser.from_cmd_path(path))
-      cmd_parser.processed_options.filter_map do |short, long, _, desc, hidden|
+      cmd_parser.processed_options.filter_map do |short, long, desc, hidden|
         next if hidden
 
         [long || short, desc]
@@ -207,7 +224,7 @@ module Commands
 
     if (cmd_parser = Homebrew::CLI::Parser.from_cmd_path(path))
       if short
-        cmd_parser.description.split(DESCRIPTION_SPLITTING_PATTERN).first
+        cmd_parser.description&.split(DESCRIPTION_SPLITTING_PATTERN)&.first
       else
         cmd_parser.description
       end

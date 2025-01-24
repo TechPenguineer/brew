@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "bundle_version"
@@ -9,8 +9,6 @@ require "system_command"
 module Homebrew
   # Check unversioned casks for updates by extracting their
   # contents and guessing the version from contained files.
-  #
-  # @api private
   class UnversionedCaskChecker
     include SystemCommand::Mixin
 

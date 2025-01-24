@@ -1,27 +1,7 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
-require "time"
-
-require "utils/analytics"
-require "utils/backtrace"
-require "utils/curl"
-require "utils/fork"
-require "utils/formatter"
-require "utils/gems"
-require "utils/git"
-require "utils/git_repository"
-require "utils/github"
-require "utils/gzip"
-require "utils/inreplace"
-require "utils/link"
-require "utils/popen"
-require "utils/repology"
-require "utils/svn"
-require "utils/tty"
-require "tap_constants"
-require "PATH"
-require "extend/kernel"
+require "context"
 
 module Homebrew
   extend Context
@@ -62,6 +42,8 @@ module Homebrew
 
         method = instance_method(name)
         define_method(name) do |*args, &block|
+          require "time"
+
           time = Time.now
 
           begin
@@ -80,7 +62,7 @@ module Homebrew
     at_exit do
       col_width = [$times.keys.map(&:size).max.to_i + 2, 15].max
       $times.sort_by { |_k, v| v }.each do |method, time|
-        puts format("%<method>-#{col_width}s %<time>0.4f sec", method: "#{method}:", time: time)
+        puts format("%<method>-#{col_width}s %<time>0.4f sec", method: "#{method}:", time:)
       end
     end
   end

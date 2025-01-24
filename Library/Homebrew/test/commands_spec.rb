@@ -2,6 +2,7 @@
 
 require "commands"
 
+# These shared contexts starting with `when` don't make sense.
 RSpec.shared_context "custom internal commands" do # rubocop:disable RSpec/ContextWording
   let(:cmds) do
     [
@@ -53,7 +54,7 @@ RSpec.describe Commands do
 
       FileUtils.touch "#{dir}/brew-t4"
 
-      allow(Tap).to receive(:cmd_directories).and_return([dir])
+      allow(described_class).to receive(:tap_cmd_directories).and_return([dir])
 
       cmds = described_class.external_commands
 
