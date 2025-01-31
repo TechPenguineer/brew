@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "attrable"
@@ -10,19 +10,18 @@ require "build_environment"
 # A base class for non-formula requirements needed by formulae.
 # A fatal requirement is one that will fail the build if it is not present.
 # By default, requirements are non-fatal.
-#
-# @api private
 class Requirement
   include Dependable
   extend Cachable
+  extend T::Helpers
+
+  # This base class enforces no constraints on its own.
+  # Individual subclasses use the `satisfy` DSL to define those constraints.
+  abstract!
 
   attr_reader :name, :cask, :download
 
   def initialize(tags = [])
-    # Only allow instances of subclasses. This base class enforces no constraints on its own.
-    # Individual subclasses use the `satisfy` DSL to define those constraints.
-    raise "Do not call `Requirement.new' directly without a subclass." unless self.class < Requirement
-
     @cask = self.class.cask
     @download = self.class.download
     tags.each do |tag|
@@ -61,8 +60,9 @@ class Requirement
     s
   end
 
-  # Pass a block or boolean to the satisfy DSL method instead of overriding.
-  sig(:final) {
+  # Overriding {#satisfied?} is unsupported.
+  # Pass a block or boolean to the satisfy DSL method instead.
+  sig {
     params(
       env:          T.nilable(String),
       cc:           T.nilable(String),
@@ -75,7 +75,7 @@ class Requirement
     return true unless satisfy
 
     @satisfied_result =
-      satisfy.yielder(env: env, cc: cc, build_bottle: build_bottle, bottle_arch: bottle_arch) do |p|
+      satisfy.yielder(env:, cc:, build_bottle:, bottle_arch:) do |p|
         instance_eval(&p)
       end
     return false unless @satisfied_result
@@ -83,8 +83,9 @@ class Requirement
     true
   end
 
-  # Pass a boolean to the fatal DSL method instead of overriding.
-  sig(:final) { returns(T::Boolean) }
+  # Overriding {#fatal?} is unsupported.
+  # Pass a boolean to the fatal DSL method instead.
+  sig { returns(T::Boolean) }
   def fatal?
     self.class.fatal || false
   end
@@ -109,7 +110,7 @@ class Requirement
     ).void
   }
   def modify_build_environment(env: nil, cc: nil, build_bottle: false, bottle_arch: nil)
-    satisfied?(env: env, cc: cc, build_bottle: build_bottle, bottle_arch: bottle_arch)
+    satisfied?(env:, cc:, build_bottle:, bottle_arch:)
     instance_eval(&env_proc) if env_proc
 
     # XXX If the satisfy block returns a Pathname, then make sure that it
@@ -219,7 +220,7 @@ class Requirement
       elsif @options[:build_env]
         require "extend/ENV"
         ENV.with_build_environment(
-          env: env, cc: cc, build_bottle: build_bottle, bottle_arch: bottle_arch,
+          env:, cc:, build_bottle:, bottle_arch:,
         ) do
           yield @proc
         end

@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "attrable"
@@ -16,6 +16,8 @@ require "macos_version"
 require "extend/on_system"
 
 class SoftwareSpec
+  include Downloadable
+
   extend Forwardable
   include OnSystem::MacOSAndLinux
 
@@ -34,8 +36,10 @@ class SoftwareSpec
   def_delegators :@resource, :sha256
 
   def initialize(flags: [])
+    super()
+
     # Ensure this is synced with `initialize_dup` and `freeze` (excluding simple objects like integers and booleans)
-    @resource = Resource.new
+    @resource = Resource::Formula.new
     @resources = {}
     @dependency_collector = DependencyCollector.new
     @bottle_specification = BottleSpecification.new
@@ -78,6 +82,11 @@ class SoftwareSpec
     super
   end
 
+  sig { override.returns(String) }
+  def download_type
+    "formula"
+  end
+
   def owner=(owner)
     @name = owner.name
     @full_name = owner.full_name
@@ -87,8 +96,7 @@ class SoftwareSpec
     resources.each_value do |r|
       r.owner = self
       next if r.version
-
-      raise "#{full_name}: version missing for \"#{r.name}\" resource!" if version.nil?
+      next if version.nil?
 
       r.version(version.head? ? Version.new("HEAD") : version.dup)
     end
@@ -123,8 +131,13 @@ class SoftwareSpec
     resources.key?(name)
   end
 
-  def resource(name, klass = Resource, &block)
+  sig {
+    params(name: String, klass: T.class_of(Resource), block: T.nilable(T.proc.bind(Resource).void))
+      .returns(T.nilable(Resource))
+  }
+  def resource(name = T.unsafe(nil), klass = Resource, &block)
     if block
+      raise ArgumentError, "Resource must have a name." if name.nil?
       raise DuplicateResourceError, name if resource_defined?(name)
 
       res = klass.new(name, &block)
@@ -132,12 +145,16 @@ class SoftwareSpec
 
       resources[name] = res
       dependency_collector.add(res)
+      res
     else
+      return @resource if name.nil?
+
       resources.fetch(name) { raise ResourceMissingError.new(owner, name) }
     end
   end
 
   def go_resource(name, &block)
+    odisabled "`SoftwareSpec#go_resource`", "Go modules"
     resource name, Resource::Go, &block
   end
 
@@ -203,19 +220,7 @@ class SoftwareSpec
       tags = []
     end
 
-    depends_on UsesFromMacOSDependency.new(dep, tags, bounds: bounds)
-  end
-
-  # @deprecated
-  def uses_from_macos_elements
-    # TODO: Remember to remove the delegate from `Formula`.
-    odisabled "#uses_from_macos_elements", "#declared_deps"
-  end
-
-  # @deprecated
-  def uses_from_macos_names
-    # TODO: Remember to remove the delegate from `Formula`.
-    odisabled "#uses_from_macos_names", "#declared_deps"
+    depends_on UsesFromMacOSDependency.new(dep, tags, bounds:)
   end
 
   def deps
@@ -292,6 +297,8 @@ class HeadSoftwareSpec < SoftwareSpec
 end
 
 class Bottle
+  include Downloadable
+
   class Filename
     attr_reader :name, :version, :tag, :rebuild
 
@@ -313,10 +320,12 @@ class Bottle
     end
 
     sig { returns(String) }
-    def to_s
+    def to_str
       "#{name}--#{version}#{extname}"
     end
-    alias to_str to_s
+
+    sig { returns(String) }
+    def to_s = to_str
 
     sig { returns(String) }
     def json
@@ -340,12 +349,14 @@ class Bottle
 
   extend Forwardable
 
-  attr_reader :name, :resource, :cellar, :rebuild
+  attr_reader :name, :resource, :tag, :cellar, :rebuild
 
   def_delegators :resource, :url, :verify_download_integrity
-  def_delegators :resource, :cached_download
+  def_delegators :resource, :cached_download, :downloader
 
   def initialize(formula, spec, tag = nil)
+    super()
+
     @name = formula.name
     @resource = Resource.new
     @resource.owner = formula
@@ -365,8 +376,15 @@ class Bottle
     root_url(spec.root_url, spec.root_url_specs)
   end
 
-  def fetch(verify_download_integrity: true)
-    @resource.fetch(verify_download_integrity: verify_download_integrity)
+  sig {
+    override.params(
+      verify_download_integrity: T::Boolean,
+      timeout:                   T.nilable(T.any(Integer, Float)),
+      quiet:                     T.nilable(T::Boolean),
+    ).returns(Pathname)
+  }
+  def fetch(verify_download_integrity: true, timeout: nil, quiet: false)
+    resource.fetch(verify_download_integrity:, timeout:, quiet:)
   rescue DownloadError
     raise unless fallback_on_error
 
@@ -374,6 +392,7 @@ class Bottle
     retry
   end
 
+  sig { override.void }
   def clear_cache
     @resource.clear_cache
     github_packages_manifest_resource&.clear_cache
@@ -389,81 +408,61 @@ class Bottle
     @spec.skip_relocation?(tag: @tag)
   end
 
-  def stage
-    resource.downloader.stage
-  end
+  def stage = downloader.stage
 
-  def fetch_tab
-    return if github_packages_manifest_resource.blank?
-
-    # a checksum is used later identifying the correct tab but we do not have the checksum for the manifest/tab
-    github_packages_manifest_resource.fetch(verify_download_integrity: false)
+  def fetch_tab(timeout: nil, quiet: false)
+    return unless (resource = github_packages_manifest_resource)
 
     begin
-      github_packages_manifest_resource_tab(github_packages_manifest_resource)
-    rescue RuntimeError => e
-      raise DownloadError.new(github_packages_manifest_resource, e)
+      resource.fetch(timeout:, quiet:)
+    rescue DownloadError
+      raise unless fallback_on_error
+
+      retry
+    rescue Resource::BottleManifest::Error
+      raise if @fetch_tab_retried
+
+      @fetch_tab_retried = true
+      resource.clear_cache
+      retry
     end
-  rescue DownloadError
-    raise unless fallback_on_error
-
-    retry
-  rescue ArgumentError
-    raise if @fetch_tab_retried
-
-    @fetch_tab_retried = true
-    github_packages_manifest_resource.clear_cache
-    retry
   end
 
   def tab_attributes
-    return {} unless github_packages_manifest_resource&.downloaded?
+    if (resource = github_packages_manifest_resource) && resource.downloaded?
+      return resource.tab
+    end
 
-    github_packages_manifest_resource_tab(github_packages_manifest_resource)
+    {}
   end
 
-  private
+  sig { returns(T.nilable(Integer)) }
+  def bottle_size
+    resource = github_packages_manifest_resource
+    return unless resource&.downloaded?
 
-  def github_packages_manifest_resource_tab(github_packages_manifest_resource)
-    manifest_json = github_packages_manifest_resource.cached_download.read
-
-    json = begin
-      JSON.parse(manifest_json)
-    rescue JSON::ParserError
-      raise "The downloaded GitHub Packages manifest was corrupted or modified (it is not valid JSON): " \
-            "\n#{github_packages_manifest_resource.cached_download}"
-    end
-
-    manifests = json["manifests"]
-    raise ArgumentError, "Missing 'manifests' section." if manifests.blank?
-
-    manifests_annotations = manifests.filter_map { |m| m["annotations"] }
-    raise ArgumentError, "Missing 'annotations' section." if manifests_annotations.blank?
-
-    bottle_digest = @resource.checksum.hexdigest
-    image_ref = GitHubPackages.version_rebuild(@resource.version, rebuild, @tag.to_s)
-    manifest_annotations = manifests_annotations.find do |m|
-      next if m["sh.brew.bottle.digest"] != bottle_digest
-
-      m["org.opencontainers.image.ref.name"] == image_ref
-    end
-    raise ArgumentError, "Couldn't find manifest matching bottle checksum." if manifest_annotations.blank?
-
-    tab = manifest_annotations["sh.brew.tab"]
-    raise ArgumentError, "Couldn't find tab from manifest." if tab.blank?
-
-    begin
-      JSON.parse(tab)
-    rescue JSON::ParserError
-      raise ArgumentError, "Couldn't parse tab JSON."
-    end
+    resource.bottle_size
   end
 
+  sig { returns(T.nilable(Integer)) }
+  def installed_size
+    resource = github_packages_manifest_resource
+    return unless resource&.downloaded?
+
+    resource.installed_size
+  end
+
+  sig { returns(Filename) }
+  def filename
+    Filename.create(resource.owner, @tag, @spec.rebuild)
+  end
+
+  sig { returns(T.nilable(Resource::BottleManifest)) }
   def github_packages_manifest_resource
     return if @resource.download_strategy != CurlGitHubPackagesDownloadStrategy
 
     @github_packages_manifest_resource ||= begin
-      resource = Resource.new("#{name}_bottle_manifest")
+      resource = Resource::BottleManifest.new(self)
 
       version_rebuild = GitHubPackages.version_rebuild(@resource.version, rebuild)
       resource.version(version_rebuild)
@@ -480,6 +479,8 @@ class Bottle
       resource
     end
   end
+
+  private
 
   def select_download_strategy(specs)
     specs[:using] ||= DownloadStrategyDetector.detect(@root_url)
@@ -587,7 +588,7 @@ class BottleSpecification
 
   sig { params(tag: T.any(Symbol, Utils::Bottles::Tag), no_older_versions: T::Boolean).returns(T::Boolean) }
   def tag?(tag, no_older_versions: false)
-    collector.tag?(tag, no_older_versions: no_older_versions)
+    collector.tag?(tag, no_older_versions:)
   end
 
   # Checksum methods in the DSL's bottle block take
@@ -611,7 +612,7 @@ class BottleSpecification
 
     cellar ||= tag.default_cellar
 
-    collector.add(tag, checksum: Checksum.new(digest), cellar: cellar)
+    collector.add(tag, checksum: Checksum.new(digest), cellar:)
   end
 
   sig {
@@ -619,17 +620,17 @@ class BottleSpecification
       .returns(T.nilable(Utils::Bottles::TagSpecification))
   }
   def tag_specification_for(tag, no_older_versions: false)
-    collector.specification_for(tag, no_older_versions: no_older_versions)
+    collector.specification_for(tag, no_older_versions:)
   end
 
   def checksums
     tags = collector.tags.sort_by do |tag|
       version = tag.to_macos_version
-      # Give arm64 bottles a higher priority so they are first
-      priority = (tag.arch == :arm64) ? "2" : "1"
+      # Give `arm64` bottles a higher priority so they are first.
+      priority = (tag.arch == :arm64) ? 2 : 1
       "#{priority}.#{version}_#{tag}"
     rescue MacOSVersion::Error
-      # Sort non-MacOS tags below MacOS tags.
+      # Sort non-macOS tags below macOS tags.
       "0.#{tag}"
     end
     tags.reverse.map do |tag|

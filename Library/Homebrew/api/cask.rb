@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "extend/cachable"
@@ -7,10 +7,10 @@ require "api/download"
 module Homebrew
   module API
     # Helper functions for using the cask JSON API.
-    #
-    # @api private
     module Cask
       extend Cachable
+
+      DEFAULT_API_FILENAME = "cask.jws.json"
 
       private_class_method :cache
 
@@ -40,9 +40,13 @@ module Homebrew
                                           .load(config: cask.config)
       end
 
+      def self.cached_json_file_path
+        HOMEBREW_CACHE_API/DEFAULT_API_FILENAME
+      end
+
       sig { returns(T::Boolean) }
       def self.download_and_cache_data!
-        json_casks, updated = Homebrew::API.fetch_json_api_file "cask.jws.json"
+        json_casks, updated = Homebrew::API.fetch_json_api_file DEFAULT_API_FILENAME
 
         cache["renames"] = {}
         cache["casks"] = json_casks.to_h do |json_cask|
@@ -83,7 +87,7 @@ module Homebrew
       def self.write_names(regenerate: false)
         download_and_cache_data! unless cache.key?("casks")
 
-        Homebrew::API.write_names_file(all_casks.keys, "cask", regenerate: regenerate)
+        Homebrew::API.write_names_file(all_casks.keys, "cask", regenerate:)
       end
     end
   end

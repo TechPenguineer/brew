@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "forwardable"
@@ -9,20 +9,23 @@ module RuboCop
     module Cask
       # This cop makes sure that OS conditionals are consistent.
       #
-      # @example
-      #   # bad
-      #   cask 'foo' do
-      #     if MacOS.version == :high_sierra
-      #       sha256 "..."
-      #     end
-      #   end
+      # ### Example
       #
-      #   # good
-      #   cask 'foo' do
-      #     on_high_sierra do
-      #       sha256 "..."
-      #     end
+      # ```ruby
+      # # bad
+      # cask 'foo' do
+      #   if MacOS.version == :high_sierra
+      #     sha256 "..."
       #   end
+      # end
+      #
+      # # good
+      # cask 'foo' do
+      #   on_high_sierra do
+      #     sha256 "..."
+      #   end
+      # end
+      # ```
       class OnSystemConditionals < Base
         extend Forwardable
         extend AutoCorrector
@@ -31,8 +34,9 @@ module RuboCop
 
         FLIGHT_STANZA_NAMES = [:preflight, :postflight, :uninstall_preflight, :uninstall_postflight].freeze
 
+        sig { override.params(cask_block: RuboCop::Cask::AST::CaskBlock).void }
         def on_cask(cask_block)
-          @cask_block = cask_block
+          @cask_block = T.let(cask_block, T.nilable(RuboCop::Cask::AST::CaskBlock))
 
           toplevel_stanzas.each do |stanza|
             next unless FLIGHT_STANZA_NAMES.include? stanza.stanza_name
@@ -47,15 +51,17 @@ module RuboCop
 
         private
 
+        sig { returns(T.nilable(RuboCop::Cask::AST::CaskBlock)) }
         attr_reader :cask_block
 
         def_delegators :cask_block, :toplevel_stanzas, :cask_body
 
+        sig { void }
         def simplify_sha256_stanzas
           nodes = {}
 
           sha256_on_arch_stanzas(cask_body) do |node, method, value|
-            nodes[method.to_s.delete_prefix("on_").to_sym] = { node: node, value: value }
+            nodes[method.to_s.delete_prefix("on_").to_sym] = { node:, value: }
           end
 
           return if !nodes.key?(:arm) || !nodes.key?(:intel)

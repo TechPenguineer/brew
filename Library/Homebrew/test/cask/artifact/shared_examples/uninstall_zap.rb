@@ -49,9 +49,10 @@ RSpec.shared_examples "#uninstall_phase or #zap_phase" do
         )
         .and_return(instance_double(SystemCommand::Result, stdout: unknown_response))
 
-      expect(fake_system_command).to receive(:run!)
-        .with("/bin/launchctl", args: ["remove", "my.fancy.package.service"], sudo: false, sudo_as_root: false)
-        .and_return(instance_double(SystemCommand::Result))
+      expect(fake_system_command).to receive(:run)
+        .with("/bin/launchctl", args: ["remove", "my.fancy.package.service"],
+        must_succeed: false, sudo: false, sudo_as_root: false)
+        .and_return(instance_double(SystemCommand::Result, success?: true))
 
       subject.public_send(:"#{artifact_dsl_key}_phase", command: fake_system_command)
     end
@@ -76,9 +77,10 @@ RSpec.shared_examples "#uninstall_phase or #zap_phase" do
         )
         .and_return(instance_double(SystemCommand::Result, stdout: service_info))
 
-      expect(fake_system_command).to receive(:run!)
-        .with("/bin/launchctl", args: ["remove", "my.fancy.package.service"], sudo: true, sudo_as_root: true)
-        .and_return(instance_double(SystemCommand::Result))
+      expect(fake_system_command).to receive(:run)
+        .with("/bin/launchctl", args: ["remove", "my.fancy.package.service"],
+        must_succeed: true, sudo: true, sudo_as_root: true)
+        .and_return(instance_double(SystemCommand::Result, success?: true))
 
       subject.public_send(:"#{artifact_dsl_key}_phase", command: fake_system_command)
     end
@@ -136,9 +138,10 @@ RSpec.shared_examples "#uninstall_phase or #zap_phase" do
         )
         .and_return(instance_double(SystemCommand::Result, stdout: service_info))
 
-      expect(fake_system_command).to receive(:run!)
-        .with("/bin/launchctl", args: ["remove", "my.fancy.package.service.12345"], sudo: true, sudo_as_root: true)
-        .and_return(instance_double(SystemCommand::Result))
+      expect(fake_system_command).to receive(:run)
+        .with("/bin/launchctl", args: ["remove", "my.fancy.package.service.12345"],
+        must_succeed: true, sudo: true, sudo_as_root: true)
+        .and_return(instance_double(SystemCommand::Result, success?: true))
 
       subject.public_send(:"#{artifact_dsl_key}_phase", command: fake_system_command)
     end
@@ -314,8 +317,8 @@ RSpec.shared_examples "#uninstall_phase or #zap_phase" do
 
       before do
         allow_any_instance_of(Cask::Artifact::AbstractUninstall).to receive(:trash_paths)
-          .and_wrap_original do |method, *args|
-            method.call(*args).tap do |trashed, _|
+          .and_wrap_original do |method, *args, **kwargs|
+            method.call(*args, **kwargs).tap do |trashed, _|
               FileUtils.rm_r trashed
             end
           end
