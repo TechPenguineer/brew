@@ -3,42 +3,36 @@
 gem:
   exclude:
     # These conflict with the rbi files provided by sorbet:
+    - base64
+    - benchmark
+    - bigdecimal
     - json
-    - msgpack
+    - logger
+    - racc
+    - rexml
     # These aren't needed:
-    - byebug
     - coderay
-    - commander
     - diff-lcs
     - docile
     - hana
-    - highline
-    - hpricot
     - language_server-protocol
-    - mustache
     - netrc
     - parallel
     - public_suffix
-    - racc
-    - rdiscount
-    - rexml
-    - ronn
+    - rbs
+    - redcarpet
     - rspec-github
     - rspec-mocks
     - rspec-retry
     - rspec
     - rspec_junit_formatter
-    - rubocop-capybara
-    - rubocop-factory_bot
     - rubocop-md
     - rubocop-performance
-    - rubocop-rspec
     - rubocop-sorbet
     - ruby-prof
     - simplecov_json_formatter
     - simpleidn
-    - unf
-    - unf_ext
     - unicode-display_width
+    - unicode-emoji
     - yard-sorbet
   prerequire: sorbet/tapioca/prerequire.rb

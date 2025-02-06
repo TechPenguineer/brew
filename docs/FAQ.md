@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # FAQ (Frequently Asked Questions)
 
 * Table of Contents
@@ -92,8 +96,8 @@ We aim to bottle everything.
 
 Homebrew's pre-built binary packages (known as [bottles](Bottles.md)) of many formulae can only be used if you install in the default installation prefix, otherwise they have to be built from source. Building from source takes a long time, is prone to failure, and is not supported. The default prefix is:
 
-* `/usr/local` for macOS on Intel,
-* `/opt/homebrew` for macOS on Apple Silicon/ARM, and
+* `/opt/homebrew` for macOS on Apple Silicon,
+* `/usr/local` for macOS on Intel, and
 * `/home/linuxbrew/.linuxbrew` for Linux.
 
 Do yourself a favour and install to the default prefix so that you can use our pre-built binary packages. *Pick another prefix at your peril!*
@@ -133,7 +137,7 @@ If all maintainer feedback has been addressed and all tests are passing, bump it
 Yes! It’s easy! If `brew tap` doesn't show `homebrew/core`, set yourself up to edit a local copy:
 
 1. Set `HOMEBREW_NO_INSTALL_FROM_API=1` in your shell environment,
-2. Run `brew tap homebrew/core` and wait for the clone to complete, then
+2. Run `brew tap --force homebrew/core` and wait for the clone to complete, then
 3. Run `brew edit <formula>` to open the formula in `EDITOR`.
 
 You don’t have to submit modifications back to `homebrew/core`, just edit the formula to what you personally need and `brew install <formula>`. As a bonus, `brew update` will merge your changes with upstream so you can still keep the formula up-to-date **with** your personal modifications!

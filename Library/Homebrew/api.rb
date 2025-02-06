@@ -1,16 +1,13 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "api/analytics"
 require "api/cask"
 require "api/formula"
-require "base64" # TODO: Add this to the Gemfile or remove it before moving to Ruby 3.4.
-require "extend/cachable"
+require "base64" # TODO: vendor this for Ruby 3.4.
 
 module Homebrew
   # Helper functions for using Homebrew's formulae.brew.sh API.
-  #
-  # @api private
   module API
     extend Cachable
 
@@ -40,6 +37,9 @@ module Homebrew
     }
     def self.fetch_json_api_file(endpoint, target: HOMEBREW_CACHE_API/endpoint,
                                  stale_seconds: Homebrew::EnvConfig.api_auto_update_secs.to_i)
+      # Lazy-load dependency.
+      require "development_tools"
+
       retry_count = 0
       url = "#{Homebrew::EnvConfig.api_domain}/#{endpoint}"
       default_url = "#{HOMEBREW_API_DEFAULT_DOMAIN}/#{endpoint}"
@@ -60,7 +60,7 @@ module Homebrew
       skip_download = target.exist? &&
                       !target.empty? &&
                       (!Homebrew.auto_update_command? ||
-                        Homebrew::EnvConfig.no_auto_update? ||
+                        (Homebrew::EnvConfig.no_auto_update? && !Homebrew::EnvConfig.force_api_auto_update?) ||
                       ((Time.now - stale_seconds) < target.mtime))
       skip_download ||= Homebrew.running_as_root_but_not_owned_by_root?
 
@@ -95,7 +95,7 @@ module Homebrew
         end
 
         mtime = insecure_download ? Time.new(1970, 1, 1) : Time.now
-        FileUtils.touch(target, mtime: mtime) unless skip_download
+        FileUtils.touch(target, mtime:) unless skip_download
         JSON.parse(target.read, freeze: true)
       rescue JSON::ParserError
         target.unlink
@@ -191,7 +191,6 @@ module Homebrew
     end
   end
 
-  # @api private
   sig { params(block: T.proc.returns(T.untyped)).returns(T.untyped) }
   def self.with_no_api_env(&block)
     return yield if Homebrew::EnvConfig.no_install_from_api?
@@ -199,7 +198,6 @@ module Homebrew
     with_env(HOMEBREW_NO_INSTALL_FROM_API: "1", HOMEBREW_AUTOMATICALLY_SET_NO_INSTALL_FROM_API: "1", &block)
   end
 
-  # @api private
   sig { params(condition: T::Boolean, block: T.proc.returns(T.untyped)).returns(T.untyped) }
   def self.with_no_api_env_if_needed(condition, &block)
     return yield unless condition

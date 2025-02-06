@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # Acceptable Casks
 
 Some casks should not go in [homebrew/cask](https://github.com/Homebrew/homebrew-cask). But there are additional [Interesting Taps and Forks](Interesting-Taps-and-Forks.md) and anyone can [start their own](How-to-Create-and-Maintain-a-Tap.md)!
@@ -24,15 +28,11 @@ We maintain separate taps for different types of binaries. Our nomenclature is:
 
 ### Stable versions
 
-Stable versions live in the main repository at [Homebrew/homebrew-cask](https://github.com/Homebrew/homebrew-cask). They should run on the latest release of macOS or the previous point release (Monterey and Ventura as of late 2022).
-
-#### But there is no Stable version
-
-When software is only available as a beta, development, or unstable version, its cask can go in the main `homebrew/cask` repository. When stable versions become available, only those will be accepted as subsequent updates.
+Stable versions live in the main repository at [Homebrew/homebrew-cask](https://github.com/Homebrew/homebrew-cask). They should run on the latest major version of macOS.
 
 ### Beta, Unstable, Development, Nightly, or Legacy
 
-Alternative versions should be submitted to [Homebrew/homebrew-cask-versions](https://github.com/Homebrew/homebrew-cask-versions).
+These versions also live in the main repository at [Homebrew/homebrew-cask](https://github.com/Homebrew/homebrew-cask). The filename and token should include `@beta`, `@nightly`, etc. to distinguish them from stable versions.
 
 ### Regional and Localized
 
@@ -54,10 +54,6 @@ For unrelated apps that share a name, the most popular one (usually the one alre
 ### Unofficial, Vendorless, and Walled builds
 
 We do not accept these casks since they involve a higher-than-normal security risk.
-
-### Fonts
-
-Font casks live in the [Homebrew/homebrew-cask-fonts](https://github.com/Homebrew/homebrew-cask-fonts) repository. See the `homebrew/cask-fonts` repository [CONTRIBUTING.md](https://github.com/Homebrew/homebrew-cask-fonts/blob/HEAD/CONTRIBUTING.md) for details.
 
 ## Apps that bundle malware
 
@@ -110,7 +106,7 @@ Before submitting a cask to any of our repositories, you must read our [document
 
 Common reasons to reject a cask entirely:
 
-* App fails with GateKeeper enabled on Homebrew supported macOS versions and platforms (e.g. unsigned apps fail on Macs with Apple Silicon/ARM).
+* App fails with GateKeeper enabled on Homebrew supported macOS versions and platforms (e.g. unsigned apps will not launch on Apple Silicon Macs).
 * App is too obscure. Examples:
   * An app from a code repository that is not notable enough (under 30 forks, 30 watchers, 75 stars).
   * [Electronic Identification (eID) software](https://github.com/Homebrew/homebrew-cask/issues/59021).

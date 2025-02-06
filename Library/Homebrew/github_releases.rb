@@ -1,12 +1,10 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "utils/github"
 require "json"
 
 # GitHub Releases client.
-#
-# @api private
 class GitHubReleases
   include Context
 
@@ -34,7 +32,7 @@ class GitHubReleases
         remote_file = tag_hash["filename"]
         local_file = tag_hash["local_filename"]
         odebug "Uploading #{remote_file}"
-        GitHub.upload_release_asset user, repo, release["id"], local_file: local_file, remote_file: remote_file
+        GitHub.upload_release_asset user, repo, release["id"], local_file:, remote_file:
       end
     end
   end

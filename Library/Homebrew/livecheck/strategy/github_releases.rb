@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 module Homebrew
@@ -50,7 +50,7 @@ module Homebrew
         # Keys in the release JSON that could contain the version.
         # The tag name is checked first, to better align with the {Git}
         # strategy.
-        VERSION_KEYS = ["tag_name", "name"].freeze
+        VERSION_KEYS = T.let(["tag_name", "name"].freeze, T::Array[String])
 
         # Whether the strategy can be applied to the provided URL.
         #
@@ -134,7 +134,7 @@ module Homebrew
           ).returns(T::Hash[Symbol, T.untyped])
         }
         def self.find_versions(url:, regex: DEFAULT_REGEX, **_unused, &block)
-          match_data = { matches: {}, regex: regex, url: url }
+          match_data = { matches: {}, regex:, url: }
 
           generated = generate_input_values(url)
           return match_data if generated.blank?

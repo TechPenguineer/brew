@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # Interesting Taps and Forks
 
 A [tap](Taps.md) is Homebrew-speak for a Git repository containing additional formulae.
@@ -7,6 +11,8 @@ Homebrew has the capability to add (and remove) multiple taps to your local inst
 Your taps are Git repositories located at `$(brew --repository)/Library/Taps`.
 
 ## Unsupported interesting taps
+
+* [DomT4/autoupdate](https://github.com/DomT4/homebrew-autoupdate): An external command to automatically run `brew update` (and optionally `brew upgrade` or `brew cleanup`) in the background with `launchd`.
 
 * [homebrew-ffmpeg/ffmpeg](https://github.com/homebrew-ffmpeg/homebrew-ffmpeg): A tap for FFmpeg with additional options, including nonfree additions.
 

@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "utils/link"
@@ -7,8 +7,6 @@ require "erb"
 
 module Homebrew
   # Helper functions for generating shell completions.
-  #
-  # @api private
   module Completions
     Variables = Struct.new(
       :aliases,
@@ -18,8 +16,8 @@ module Homebrew
       keyword_init: true,
     )
 
-    COMPLETIONS_DIR = (HOMEBREW_REPOSITORY/"completions").freeze
-    TEMPLATE_DIR = (HOMEBREW_LIBRARY_PATH/"completions").freeze
+    COMPLETIONS_DIR = T.let((HOMEBREW_REPOSITORY/"completions").freeze, Pathname)
+    TEMPLATE_DIR = T.let((HOMEBREW_LIBRARY_PATH/"completions").freeze, Pathname)
 
     SHELLS = %w[bash fish zsh].freeze
     COMPLETIONS_EXCLUSION_LIST = %w[
@@ -28,7 +26,7 @@ module Homebrew
       update-report
     ].freeze
 
-    BASH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = {
+    BASH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = T.let({
       formula:           "__brew_complete_formulae",
       installed_formula: "__brew_complete_installed_formulae",
       outdated_formula:  "__brew_complete_outdated_formulae",
@@ -40,9 +38,9 @@ module Homebrew
       command:           "__brew_complete_commands",
       diagnostic_check:  '__brewcomp "${__HOMEBREW_DOCTOR_CHECKS=$(brew doctor --list-checks)}"',
       file:              "__brew_complete_files",
-    }.freeze
+    }.freeze, T::Hash[Symbol, String])
 
-    ZSH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = {
+    ZSH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = T.let({
       formula:           "__brew_formulae",
       installed_formula: "__brew_installed_formulae",
       outdated_formula:  "__brew_outdated_formulae",
@@ -54,9 +52,9 @@ module Homebrew
       command:           "__brew_commands",
       diagnostic_check:  "__brew_diagnostic_checks",
       file:              "__brew_formulae_or_ruby_files",
-    }.freeze
+    }.freeze, T::Hash[Symbol, String])
 
-    FISH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = {
+    FISH_NAMED_ARGS_COMPLETION_FUNCTION_MAPPING = T.let({
       formula:           "__fish_brew_suggest_formulae_all",
       installed_formula: "__fish_brew_suggest_formulae_installed",
       outdated_formula:  "__fish_brew_suggest_formulae_outdated",
@@ -67,12 +65,12 @@ module Homebrew
       installed_tap:     "__fish_brew_suggest_taps_installed",
       command:           "__fish_brew_suggest_commands",
       diagnostic_check:  "__fish_brew_suggest_diagnostic_checks",
-    }.freeze
+    }.freeze, T::Hash[Symbol, String])
 
     sig { void }
     def self.link!
       Settings.write :linkcompletions, true
-      Tap.select(&:installed?).each do |tap|
+      Tap.installed.each do |tap|
         Utils::Link.link_completions tap.path, "brew completions link"
       end
     end
@@ -80,7 +78,7 @@ module Homebrew
     sig { void }
     def self.unlink!
       Settings.write :linkcompletions, false
-      Tap.select(&:installed?).each do |tap|
+      Tap.installed.each do |tap|
         next if tap.official?
 
         Utils::Link.unlink_completions tap.path
@@ -94,7 +92,7 @@ module Homebrew
 
     sig { returns(T::Boolean) }
     def self.completions_to_link?
-      Tap.select(&:installed?).each do |tap|
+      Tap.installed.each do |tap|
         next if tap.official?
 
         SHELLS.each do |shell|
@@ -266,11 +264,12 @@ module Homebrew
       COMPLETION
     end
 
+    sig { params(command: String, option: String).returns(String) }
     def self.generate_zsh_option_exclusions(command, option)
-      conflicts = Commands.option_conflicts(command, option.gsub(/^--/, ""))
+      conflicts = Commands.option_conflicts(command, option.gsub(/^--?/, ""))
       return "" unless conflicts.presence
 
-      "(#{conflicts.map { |conflict| "--#{conflict}" }.join(" ")})"
+      "(#{conflicts.map { |conflict| "-#{"-" if conflict.size > 1}#{conflict}" }.join(" ")})"
     end
 
     sig { params(commands: T::Array[String]).returns(String) }
@@ -305,7 +304,11 @@ module Homebrew
       return unless command_gets_completions? command
 
       command_description = format_description Commands.command_description(command, short: true), fish: true
-      lines = ["__fish_brew_complete_cmd '#{command}' '#{command_description}'"]
+      lines = if COMPLETIONS_EXCLUSION_LIST.include?(command)
+        []
+      else
+        ["__fish_brew_complete_cmd '#{command}' '#{command_description}'"]
+      end
 
       options = command_options(command).sort.filter_map do |opt, desc|
         arg_line = "__fish_brew_complete_arg '#{command}' -l #{opt.sub(/^-+/, "")}"

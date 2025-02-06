@@ -1,8 +1,9 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "ipaddr"
 require "extend/on_system"
+require "utils/service"
 
 module Homebrew
   # The {Service} class implements the DSL methods used in a formula's
@@ -67,20 +68,20 @@ module Homebrew
 
     sig {
       params(
-        command: T.nilable(T.any(T::Array[String], String, Pathname)),
-        macos:   T.nilable(T.any(T::Array[String], String, Pathname)),
-        linux:   T.nilable(T.any(T::Array[String], String, Pathname)),
-      ).returns(T.nilable(Array))
+        command: T.nilable(T.any(T::Array[T.any(String, Pathname)], String, Pathname)),
+        macos:   T.nilable(T.any(T::Array[T.any(String, Pathname)], String, Pathname)),
+        linux:   T.nilable(T.any(T::Array[T.any(String, Pathname)], String, Pathname)),
+      ).returns(T.nilable(T::Array[T.any(String, Pathname)]))
     }
     def run(command = nil, macos: nil, linux: nil)
       # Save parameters for serialization
       if command
         @run_params = command
       elsif macos || linux
-        @run_params = { macos: macos, linux: linux }.compact
+        @run_params = { macos:, linux: }.compact
       end
 
-      command ||= on_system_conditional(macos: macos, linux: linux)
+      command ||= on_system_conditional(macos:, linux:)
       case command
       when nil
         @run
@@ -152,8 +153,7 @@ module Homebrew
       when true, false
         @keep_alive = { always: value }
       when Hash
-        hash = T.cast(value, Hash)
-        unless (hash.keys - KEEP_ALIVE_KEYS).empty?
+        unless (value.keys - KEEP_ALIVE_KEYS).empty?
           raise TypeError, "Service#keep_alive allows only #{KEEP_ALIVE_KEYS}"
         end
 
@@ -214,7 +214,7 @@ module Homebrew
           raise TypeError, "Service#sockets expects a valid ipv4 or ipv6 host address"
         end
 
-        { host: host, port: port, type: type }
+        { host:, port:, type: }
       end
     end
 
@@ -455,18 +455,8 @@ module Homebrew
     # @return [String]
     sig { returns(String) }
     def to_systemd_unit
-      unit = <<~EOS
-        [Unit]
-        Description=Homebrew generated unit for #{@formula.name}
-
-        [Install]
-        WantedBy=default.target
-
-        [Service]
-      EOS
-
       # command needs to be first because it initializes all other values
-      cmd = command&.map { |arg| Utils::Shell.sh_quote(arg) }
+      cmd = command&.map { |arg| Utils::Service.systemd_quote(arg) }
                    &.join(" ")
 
       options = []
@@ -482,24 +472,22 @@ module Homebrew
       options << "StandardError=append:#{File.expand_path(@error_log_path)}" if @error_log_path.present?
       options += @environment_variables.map { |k, v| "Environment=\"#{k}=#{v}\"" } if @environment_variables.present?
 
-      unit + options.join("\n")
+      <<~SYSTEMD
+        [Unit]
+        Description=Homebrew generated unit for #{@formula.name}
+
+        [Install]
+        WantedBy=default.target
+
+        [Service]
+        #{options.join("\n")}
+      SYSTEMD
     end
 
     # Returns a `String` systemd unit timer.
     # @return [String]
     sig { returns(String) }
     def to_systemd_timer
-      timer = <<~EOS
-        [Unit]
-        Description=Homebrew generated timer for #{@formula.name}
-
-        [Install]
-        WantedBy=timers.target
-
-        [Timer]
-        Unit=#{service_name}
-      EOS
-
       options = []
       options << "Persistent=true" if @run_type == RUN_TYPE_CRON
       options << "OnUnitActiveSec=#{@interval}" if @run_type == RUN_TYPE_INTERVAL
@@ -510,7 +498,17 @@ module Homebrew
         options << "OnCalendar=#{@cron[:Weekday]}-*-#{@cron[:Month]}-#{@cron[:Day]} #{hours}:#{minutes}:00"
       end
 
-      timer + options.join("\n")
+      <<~SYSTEMD
+        [Unit]
+        Description=Homebrew generated timer for #{@formula.name}
+
+        [Install]
+        WantedBy=timers.target
+
+        [Timer]
+        Unit=#{service_name}
+        #{options.join("\n")}
+      SYSTEMD
     end
 
     # Prepare the service hash for inclusion in the formula API JSON.
@@ -581,11 +579,11 @@ module Homebrew
         when String
           replace_placeholders(api_hash["run"])
         when Array
-          api_hash["run"].map(&method(:replace_placeholders))
+          api_hash["run"].map { replace_placeholders(_1) }
         when Hash
           api_hash["run"].to_h do |key, elem|
             run_cmd = if elem.is_a?(Array)
-              elem.map(&method(:replace_placeholders))
+              elem.map { replace_placeholders(_1) }
             else
               replace_placeholders(elem)
             end

@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 module Homebrew
@@ -9,8 +9,6 @@ module Homebrew
       #
       # This strategy is not applied automatically and it's necessary to use
       # `strategy :header_match` in a `livecheck` block to apply it.
-      #
-      # @api private
       class HeaderMatch
         NICE_NAME = "Header match"
 
@@ -22,7 +20,7 @@ module Homebrew
         URL_MATCH_REGEX = %r{^https?://}i
 
         # The header fields to check when a `strategy` block isn't provided.
-        DEFAULT_HEADERS_TO_CHECK = ["content-disposition", "location"].freeze
+        DEFAULT_HEADERS_TO_CHECK = T.let(["content-disposition", "location"].freeze, T::Array[String])
 
         # Whether the strategy can be applied to the provided URL.
         #
@@ -81,9 +79,9 @@ module Homebrew
           ).returns(T::Hash[Symbol, T.untyped])
         }
         def self.find_versions(url:, regex: nil, homebrew_curl: false, **_unused, &block)
-          match_data = { matches: {}, regex: regex, url: url }
+          match_data = { matches: {}, regex:, url: }
 
-          headers = Strategy.page_headers(url, homebrew_curl: homebrew_curl)
+          headers = Strategy.page_headers(url, homebrew_curl:)
 
           # Merge the headers from all responses into one hash
           merged_headers = headers.reduce(&:merge)

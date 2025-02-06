@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "formula"
@@ -6,8 +6,6 @@ require "cask/cask_loader"
 require "system_command"
 
 # Helper module for validating syntax in taps.
-#
-# @api private
 module Readall
   extend Cachable
   extend SystemCommand::Mixin
@@ -18,6 +16,7 @@ module Readall
 
   private_class_method :cache
 
+  sig { params(ruby_files: T::Array[Pathname]).returns(T::Boolean) }
   def self.valid_ruby_syntax?(ruby_files)
     failed = T.let(false, T::Boolean)
     ruby_files.each do |ruby_file|
@@ -27,6 +26,7 @@ module Readall
     !failed
   end
 
+  sig { params(alias_dir: Pathname, formula_dir: Pathname).returns(T::Boolean) }
   def self.valid_aliases?(alias_dir, formula_dir)
     return true unless alias_dir.directory?
 
@@ -48,6 +48,7 @@ module Readall
     !failed
   end
 
+  sig { params(tap: Tap, bottle_tag: T.nilable(Utils::Bottles::Tag)).returns(T::Boolean) }
   def self.valid_formulae?(tap, bottle_tag: nil)
     cache[:valid_formulae] ||= {}
 
@@ -57,12 +58,12 @@ module Readall
       next if valid == true || valid&.include?(bottle_tag)
 
       formula_name = file.basename(".rb").to_s
-      formula_contents = file.read(encoding: "UTF-8")
+      formula_contents = file.read.force_encoding("UTF-8")
 
       readall_namespace = "ReadallNamespace"
       readall_formula_class = Formulary.load_formula(formula_name, file, formula_contents, readall_namespace,
                                                      flags: [], ignore_errors: false)
-      readall_formula = readall_formula_class.new(formula_name, file, :stable, tap: tap)
+      readall_formula = readall_formula_class.new(formula_name, file, :stable, tap:)
       readall_formula.to_hash
       # TODO: Remove check for MACOS_MODULE_REGEX once the `MacOS` module is undefined on Linux
       cache[:valid_formulae][file] = if readall_formula.on_system_blocks_exist? ||
@@ -73,6 +74,7 @@ module Readall
       end
     rescue Interrupt
       raise
+    # Handle all possible exceptions reading formulae.
     rescue Exception => e # rubocop:disable Lint/RescueException
       onoe "Invalid formula (#{bottle_tag}): #{file}"
       $stderr.puts e
@@ -81,10 +83,16 @@ module Readall
     success
   end
 
+  sig { params(_tap: Tap, os_name: T.nilable(Symbol), arch: T.nilable(Symbol)).returns(T::Boolean) }
   def self.valid_casks?(_tap, os_name: nil, arch: nil)
     true
   end
 
+  sig {
+    params(
+      tap: Tap, aliases: T::Boolean, no_simulate: T::Boolean, os_arch_combinations: T::Array[T::Array[String]],
+    ).returns(T::Boolean)
+  }
   def self.valid_tap?(tap, aliases: false, no_simulate: false,
                       os_arch_combinations: OnSystem::ALL_OS_ARCH_COMBINATIONS)
     success = true
@@ -99,12 +107,12 @@ module Readall
       success = false unless valid_casks?(tap)
     else
       os_arch_combinations.each do |os, arch|
-        bottle_tag = Utils::Bottles::Tag.new(system: os, arch: arch)
+        bottle_tag = Utils::Bottles::Tag.new(system: os, arch:)
         next unless bottle_tag.valid_combination?
 
-        Homebrew::SimulateSystem.with os: os, arch: arch do
-          success = false unless valid_formulae?(tap, bottle_tag: bottle_tag)
-          success = false unless valid_casks?(tap, os_name: os, arch: arch)
+        Homebrew::SimulateSystem.with(os:, arch:) do
+          success = false unless valid_formulae?(tap, bottle_tag:)
+          success = false unless valid_casks?(tap, os_name: os, arch:)
         end
       end
     end
@@ -112,6 +120,7 @@ module Readall
     success
   end
 
+  sig { params(filename: Pathname).returns(T::Boolean) }
   private_class_method def self.syntax_errors_or_warnings?(filename)
     # Retrieve messages about syntax errors/warnings printed to `$stderr`.
     _, err, status = system_command(RUBY_PATH, args: ["-c", "-w", filename], print_stderr: false)
