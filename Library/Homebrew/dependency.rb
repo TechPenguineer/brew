@@ -1,17 +1,20 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "dependable"
 
 # A dependency on another Homebrew formula.
 #
-# @api private
+# @api internal
 class Dependency
-  extend Forwardable
   include Dependable
   extend Cachable
 
-  attr_reader :name, :tap
+  sig { returns(String) }
+  attr_reader :name
+
+  sig { returns(T.nilable(Tap)) }
+  attr_reader :tap
 
   def initialize(name, tags = [])
     raise ArgumentError, "Dependency must have a name!" unless name
@@ -22,10 +25,6 @@ class Dependency
     return unless (tap_with_name = Tap.with_formula_name(name))
 
     @tap, = tap_with_name
-  end
-
-  def to_s
-    name
   end
 
   def ==(other)
@@ -56,8 +55,16 @@ class Dependency
 
     return false if minimum_version.blank?
 
-    installed_version = formula.any_installed_version
-    return false unless installed_version
+    # If the opt prefix doesn't exist: we likely have an incomplete installation.
+    return false unless formula.opt_prefix.exist?
+
+    installed_keg = formula.any_installed_keg
+    return false unless installed_keg
+
+    # If the keg name doesn't match, we may have moved from an alias to a full formula and need to upgrade.
+    return false unless formula.possible_names.include?(installed_keg.name)
+
+    installed_version = installed_keg.version
 
     # Tabs prior to 4.1.18 did not have revision or pkg_version fields.
     # As a result, we have to be more conversative when we do not have
@@ -74,7 +81,7 @@ class Dependency
   end
 
   def satisfied?(inherited_options = [], minimum_version: nil, minimum_revision: nil)
-    installed?(minimum_version: minimum_version, minimum_revision: minimum_revision) &&
+    installed?(minimum_version:, minimum_revision:) &&
       missing_options(inherited_options).empty?
   end
 
@@ -97,6 +104,9 @@ class Dependency
   end
 
   sig { returns(String) }
+  def to_s = name
+
+  sig { returns(String) }
   def inspect
     "#<#{self.class.name}: #{name.inspect} #{tags.inspect}>"
   end
@@ -112,6 +122,8 @@ class Dependency
     # the list.
     # The default filter, which is applied when a block is not given, omits
     # optionals and recommends based on what the dependent has asked for
+    #
+    # @api internal
     def expand(dependent, deps = dependent.deps, cache_key: nil, &block)
       # Keep track dependencies to avoid infinite cyclic dependency recursion.
       @expand_stack ||= []
@@ -133,14 +145,14 @@ class Dependency
         when :skip
           next if @expand_stack.include? dep.name
 
-          expanded_deps.concat(expand(dep.to_formula, cache_key: cache_key, &block))
+          expanded_deps.concat(expand(dep.to_formula, cache_key:, &block))
         when :keep_but_prune_recursive_deps
           expanded_deps << dep
         else
           next if @expand_stack.include? dep.name
 
           dep_formula = dep.to_formula
-          expanded_deps.concat(expand(dep_formula, cache_key: cache_key, &block))
+          expanded_deps.concat(expand(dep_formula, cache_key:, &block))
 
           # Fixes names for renamed/aliased formulae.
           dep = dep.dup_with_formula_name(dep_formula)
@@ -178,6 +190,8 @@ class Dependency
     end
 
     # Keep a dependency, but prune its dependencies.
+    #
+    # @api internal
     sig { void }
     def keep_but_prune_recursive_deps
       throw(:action, :keep_but_prune_recursive_deps)
@@ -249,7 +263,7 @@ class UsesFromMacOSDependency < Dependency
 
   sig { params(minimum_version: T.nilable(Version), minimum_revision: T.nilable(Integer)).returns(T::Boolean) }
   def installed?(minimum_version: nil, minimum_revision: nil)
-    use_macos_install? || super(minimum_version: minimum_version, minimum_revision: minimum_revision)
+    use_macos_install? || super
   end
 
   sig { returns(T::Boolean) }
@@ -276,7 +290,7 @@ class UsesFromMacOSDependency < Dependency
 
   sig { override.params(formula: Formula).returns(T.self_type) }
   def dup_with_formula_name(formula)
-    self.class.new(formula.full_name.to_s, tags, bounds: bounds)
+    self.class.new(formula.full_name.to_s, tags, bounds:)
   end
 
   sig { returns(String) }

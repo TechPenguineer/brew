@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "bundle_version"
@@ -11,8 +11,6 @@ module Homebrew
       #
       # This strategy is not applied automatically and it's necessary to use
       # `strategy :sparkle` in a `livecheck` block to apply it.
-      #
-      # @api private
       class Sparkle
         # A priority of zero causes livecheck to skip the strategy. We do this
         # for {Sparkle} so we can selectively apply it when appropriate.
@@ -22,7 +20,7 @@ module Homebrew
         URL_MATCH_REGEX = %r{^https?://}i
 
         # Common `os` values used in appcasts to refer to macOS.
-        APPCAST_MACOS_STRINGS = ["macos", "osx"].freeze
+        APPCAST_MACOS_STRINGS = T.let(["macos", "osx"].freeze, T::Array[String])
 
         # Whether the strategy can be applied to the provided URL.
         #
@@ -33,7 +31,6 @@ module Homebrew
           URL_MATCH_REGEX.match?(url)
         end
 
-        # @api private
         Item = Struct.new(
           # @api public
           :title,
@@ -57,12 +54,15 @@ module Homebrew
         ) do
           extend Forwardable
 
+          # @!attribute [r] version
           # @api public
           delegate version: :bundle_version
 
+          # @!attribute [r] short_version
           # @api public
           delegate short_version: :bundle_version
 
+          # @!attribute [r] nice_version
           # @api public
           delegate nice_version: :bundle_version
         end
@@ -128,15 +128,15 @@ module Homebrew
             bundle_version = BundleVersion.new(short_version, version) if short_version || version
 
             data = {
-              title:                  title,
-              link:                   link,
-              channel:                channel,
-              release_notes_link:     release_notes_link,
-              pub_date:               pub_date,
-              os:                     os,
-              url:                    url,
-              bundle_version:         bundle_version,
-              minimum_system_version: minimum_system_version,
+              title:,
+              link:,
+              channel:,
+              release_notes_link:,
+              pub_date:,
+              os:,
+              url:,
+              bundle_version:,
+              minimum_system_version:,
             }.compact
             next if data.empty?
 
@@ -214,24 +214,32 @@ module Homebrew
         #
         # @param url [String] the URL of the content to check
         # @param regex [Regexp, nil] a regex for use in a strategy block
+        # @param homebrew_curl [Boolean] whether to use brewed curl with the URL
         # @return [Hash]
         sig {
           params(
-            url:     String,
-            regex:   T.nilable(Regexp),
-            _unused: T.untyped,
-            block:   T.nilable(Proc),
+            url:           String,
+            regex:         T.nilable(Regexp),
+            homebrew_curl: T::Boolean,
+            unused:        T.untyped,
+            block:         T.nilable(Proc),
           ).returns(T::Hash[Symbol, T.untyped])
         }
-        def self.find_versions(url:, regex: nil, **_unused, &block)
+        def self.find_versions(url:, regex: nil, homebrew_curl: false, **unused, &block)
           if regex.present? && block.blank?
             raise ArgumentError,
                   "#{Utils.demodulize(T.must(name))} only supports a regex when using a `strategy` block"
           end
 
-          match_data = { matches: {}, regex: regex, url: url }
+          match_data = { matches: {}, regex:, url: }
 
-          match_data.merge!(Strategy.page_content(url))
+          match_data.merge!(
+            Strategy.page_content(
+              url,
+              url_options:   unused.fetch(:url_options, {}),
+              homebrew_curl:,
+            ),
+          )
           content = match_data.delete(:content)
           return match_data if content.blank?
 

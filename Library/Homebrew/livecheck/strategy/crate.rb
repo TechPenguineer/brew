@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 module Homebrew
@@ -23,14 +23,17 @@ module Homebrew
 
         # The default `strategy` block used to extract version information when
         # a `strategy` block isn't provided.
-        DEFAULT_BLOCK = proc do |json, regex|
+        DEFAULT_BLOCK = T.let(proc do |json, regex|
           json["versions"]&.map do |version|
             next if version["yanked"]
             next unless (match = version["num"]&.match(regex))
 
             match[1]
           end
-        end.freeze
+        end.freeze, T.proc.params(
+          arg0: T::Hash[String, T.untyped],
+          arg1: Regexp,
+        ).returns(T.any(String, T::Array[String])))
 
         # The `Regexp` used to determine if the strategy applies to the URL.
         URL_MATCH_REGEX = %r{
@@ -78,12 +81,12 @@ module Homebrew
             regex:            T.nilable(Regexp),
             provided_content: T.nilable(String),
             homebrew_curl:    T::Boolean,
-            _unused:          T.untyped,
+            unused:           T.untyped,
             block:            T.nilable(Proc),
           ).returns(T::Hash[Symbol, T.untyped])
         }
-        def self.find_versions(url:, regex: nil, provided_content: nil, homebrew_curl: false, **_unused, &block)
-          match_data = { matches: {}, regex: regex, url: url }
+        def self.find_versions(url:, regex: nil, provided_content: nil, homebrew_curl: false, **unused, &block)
+          match_data = { matches: {}, regex:, url: }
           match_data[:cached] = true if provided_content.is_a?(String)
 
           generated = generate_input_values(url)
@@ -94,7 +97,13 @@ module Homebrew
           content = if provided_content
             provided_content
           else
-            match_data.merge!(Strategy.page_content(match_data[:url], homebrew_curl: homebrew_curl))
+            match_data.merge!(
+              Strategy.page_content(
+                match_data[:url],
+                url_options:   unused.fetch(:url_options, {}),
+                homebrew_curl:,
+              ),
+            )
             match_data[:content]
           end
           return match_data unless content

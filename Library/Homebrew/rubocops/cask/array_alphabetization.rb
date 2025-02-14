@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 module RuboCop
@@ -7,6 +7,7 @@ module RuboCop
       class ArrayAlphabetization < Base
         extend AutoCorrector
 
+        sig { params(node: RuboCop::AST::SendNode).void }
         def on_send(node)
           return unless [:zap, :uninstall].include?(node.method_name)
 
@@ -37,13 +38,14 @@ module RuboCop
         def sort_array(source)
           # Combine each comment with the line(s) below so that they remain in the same relative location
           combined_source = source.each_with_index.filter_map do |line, index|
+            next if line.blank?
             next if line.strip.start_with?("#")
 
             next recursively_find_comments(source, index, line)
           end
 
           # Separate the lines into those that should be sorted and those that should not
-          # ie. skip the opening and closing brackets of the array
+          # i.e. skip the opening and closing brackets of the array.
           to_sort, to_keep = combined_source.partition { |line| !line.include?("[") && !line.include?("]") }
 
           # Sort the lines that should be sorted

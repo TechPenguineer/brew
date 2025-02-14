@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # `brew livecheck`
 
 The `brew livecheck` command finds the newest version of a formula or cask's software by checking upstream. Livecheck has [strategies](https://rubydoc.brew.sh/Homebrew/Livecheck/Strategy) to identify versions from various sources, such as Git repositories, websites, etc.
@@ -108,6 +112,24 @@ end
 
 The referenced formula/cask should be in the same tap, as a reference to a formula/cask from another tap will generate an error if the user doesn't already have it tapped.
 
+### `POST` requests
+
+Some checks require making a `POST` request and that can be accomplished by adding a `post_form` or `post_json` option to a `livecheck` block `url`.
+
+```ruby
+livecheck do
+  url "https://example.com/download.php", post_form: {
+    "Name"   => "",
+    "E-mail" => "",
+  }
+  regex(/href=.*?example[._-]v?(\d+(?:\.\d+)+)\.t/i)
+end
+```
+
+`post_form` is used for form data and `post_json` is used for JSON data. livecheck will encode the provided hash value to the appropriate format before making the request.
+
+`POST` support only applies to strategies that use `Strategy::page_headers` or `::page_content` (directly or indirectly), so it does not apply to `ExtractPlist`, `Git`, `GithubLatest`, `GithubReleases`, etc.
+
 ### `strategy` blocks
 
 If the upstream version format needs to be manipulated to match the formula/cask format, a `strategy` block can be used instead of a `regex`.
@@ -188,7 +210,7 @@ A `strategy` block for `Git` is a bit different, as the block receives an array 
 livecheck do
   url :stable
   strategy :git do |tags|
-    tags.map { |tag| tag[/^(\d{4}-\d{2}-\d{2})$/i, 1]&.gsub(/\D/, "") }.compact
+    tags.filter_map { |tag| tag[/^(\d{4}-\d{2}-\d{2})$/i, 1]&.gsub(/\D/, "") }
   end
 end
 ```
@@ -268,6 +290,34 @@ livecheck do
 end
 ```
 
+If you need to modify the version, you can access the YAML hash in the `strategy` block like so:
+
+```ruby
+livecheck do
+  url "https://example.org/my-app/latest-mac.yml"
+  strategy :electron_builder do |yaml|
+    yaml["version"]&.gsub(/\D/, "")
+  end
+end
+```
+
+Similarly, you can work with the `files` array like this:
+
+```ruby
+livecheck do
+  url "https://example.org/my-app/latest-mac.yml"
+  regex(/MyApp[._-]v?(\d+(?:\.\d+)+)-(\h+)\.dmg/i)
+  strategy :electron_builder do |yaml, regex|
+    yaml["files"]&.map do |file|
+      match = file["url"]&.match(regex)
+      next if match.blank?
+
+      "#{match[1]},#{match[2]}"
+    end
+  end
+end
+```
+
 #### `Json` `strategy` block
 
 A `strategy` block for `Json` receives parsed JSON data and, if provided, a regex. For example, if we have an object containing an array of objects with a `version` string, we can select only the members that match the regex and isolate the relevant version text as follows:
@@ -285,10 +335,10 @@ end
 
 #### `Sparkle` `strategy` block
 
-A `strategy` block for `Sparkle` receives an `item` which has methods for the `version`, `short_version`, `nice_version`, `url`, `channel` and `title`. It expects a URL for an XML feed providing release information to a macOS application that self-updates using the Sparkle framework. This URL can be found within the app bundle as the `SUFeedURL` property in `Contents/Info.plist` or by using the [`find-appcast`](https://github.com/Homebrew/homebrew-cask/blob/HEAD/developer/bin/find-appcast) script. Run it with:
+A `strategy` block for `Sparkle` receives an `item` which has methods for the `version`, `short_version`, `nice_version`, `url`, `channel` and `title`. It expects a URL for an XML feed providing release information to a macOS application that self-updates using the Sparkle framework. This URL can be found within the app bundle as the `SUFeedURL` property in `Contents/Info.plist` or by using the [`find-appcast`](https://github.com/Homebrew/homebrew-cask/blob/HEAD/cmd/find-appcast.rb) command. Run it with:
 
 ```bash
-"$(brew --repository homebrew/cask)/developer/bin/find-appcast" '/path/to/application.app'
+brew find-appcast '/path/to/application.app'
 ```
 
 The default pattern for the `Sparkle` strategy is to generate `"#{item.short_version},#{item.version}"` from `sparkle:shortVersionString` and `sparkle:version` if both are set. In the example below, the `url` also includes a download ID which is needed:

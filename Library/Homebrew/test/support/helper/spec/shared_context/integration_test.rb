@@ -6,6 +6,7 @@ require "formula_installer"
 
 RSpec::Matchers.define_negated_matcher :be_a_failure, :be_a_success
 
+# These shared contexts starting with `when` don't make sense.
 RSpec.shared_context "integration test" do # rubocop:disable RSpec/ContextWording
   extend RSpec::Matchers::DSL
 
@@ -129,13 +130,16 @@ RSpec.shared_context "integration test" do # rubocop:disable RSpec/ContextWordin
     end
   end
 
-  def setup_test_formula(name, content = nil, bottle_block: nil)
+  def setup_test_formula(name, content = nil, tap: CoreTap.instance,
+                         bottle_block: nil, tab_attributes: nil)
     case name
     when /^testball/
+      # Use a different tarball for testball2 to avoid lock errors when writing concurrency tests
+      prefix = (name == "testball2") ? "testball2" : "testball"
       tarball = if OS.linux?
-        TEST_FIXTURE_DIR/"tarballs/testball-0.1-linux.tbz"
+        TEST_FIXTURE_DIR/"tarballs/#{prefix}-0.1-linux.tbz"
       else
-        TEST_FIXTURE_DIR/"tarballs/testball-0.1.tbz"
+        TEST_FIXTURE_DIR/"tarballs/#{prefix}-0.1.tbz"
       end
       content = <<~RUBY
         desc "Some test"
@@ -174,20 +178,34 @@ RSpec.shared_context "integration test" do # rubocop:disable RSpec/ContextWordin
       RUBY
     end
 
-    Formulary.core_path(name).tap do |formula_path|
-      formula_path.write <<~RUBY
+    formula_path = Formulary.find_formula_in_tap(name.downcase, tap).tap do |path|
+      path.write <<~RUBY
         class #{Formulary.class_s(name)} < Formula
         #{content.gsub(/^(?!$)/, "  ")}
         end
       RUBY
 
-      CoreTap.instance.clear_cache
+      tap.clear_cache
     end
+
+    return formula_path if tab_attributes.nil?
+
+    keg = Formula[name].prefix
+    keg.mkpath
+
+    tab = Tab.for_name(name)
+    tab.tabfile ||= keg/AbstractTab::FILENAME
+    tab_attributes.each do |key, value|
+      tab.instance_variable_set(:"@#{key}", value)
+    end
+    tab.write
+
+    formula_path
   end
 
   def install_test_formula(name, content = nil, build_bottle: false)
     setup_test_formula(name, content)
-    fi = FormulaInstaller.new(Formula[name], build_bottle: build_bottle)
+    fi = FormulaInstaller.new(Formula[name], build_bottle:, installed_on_request: true)
     fi.prelude
     fi.fetch
     fi.install
@@ -195,7 +213,7 @@ RSpec.shared_context "integration test" do # rubocop:disable RSpec/ContextWordin
   end
 
   def setup_test_tap
-    path = Tap::TAP_DIRECTORY/"homebrew/homebrew-foo"
+    path = HOMEBREW_TAP_DIRECTORY/"homebrew/homebrew-foo"
     path.mkpath
     path.cd do
       system "git", "init"

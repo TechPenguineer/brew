@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "timeout"
@@ -12,8 +12,6 @@ require "system_command"
 module Cask
   module Artifact
     # Abstract superclass for uninstall artifacts.
-    #
-    # @api private
     class AbstractUninstall < AbstractArtifact
       include SystemCommand::Mixin
 
@@ -40,7 +38,7 @@ module Cask
       def initialize(cask, **directives)
         directives.assert_valid_keys(*ORDERED_DIRECTIVES)
 
-        super(cask, **directives)
+        super
         directives[:signal] = Array(directives[:signal]).flatten.each_slice(2).to_a
         @directives = directives
 
@@ -113,27 +111,30 @@ module Cask
             plist_status = command.run(
               "/bin/launchctl",
               args:         ["list", service],
-              sudo:         sudo,
+              sudo:,
               sudo_as_root: sudo,
               print_stderr: false,
             ).stdout
             if plist_status.start_with?("{")
-              command.run!(
+              result = command.run(
                 "/bin/launchctl",
                 args:         ["remove", service],
-                sudo:         sudo,
+                must_succeed: sudo,
+                sudo:,
                 sudo_as_root: sudo,
               )
+              next if !sudo && !result.success?
+
               sleep 1
             end
             paths = [
-              +"/Library/LaunchAgents/#{service}.plist",
-              +"/Library/LaunchDaemons/#{service}.plist",
+              "/Library/LaunchAgents/#{service}.plist",
+              "/Library/LaunchDaemons/#{service}.plist",
             ]
             paths.each { |elt| elt.prepend(Dir.home).freeze } unless sudo
             paths = paths.map { |elt| Pathname(elt) }.select(&:exist?)
             paths.each do |path|
-              command.run!("/bin/rm", args: ["-f", "--", path], sudo: sudo, sudo_as_root: sudo)
+              command.run!("/bin/rm", args: ["-f", "--", path], sudo:, sudo_as_root: sudo)
             end
             # undocumented and untested: pass a path to uninstall :launchctl
             next unless Pathname(service).exist?
@@ -141,13 +142,13 @@ module Cask
             command.run!(
               "/bin/launchctl",
               args:         ["unload", "-w", "--", service],
-              sudo:         sudo,
+              sudo:,
               sudo_as_root: sudo,
             )
             command.run!(
               "/bin/rm",
               args:         ["-f", "--", service],
-              sudo:         sudo,
+              sudo:,
               sudo_as_root: sudo,
             )
             sleep 1
@@ -459,26 +460,29 @@ module Cask
       def trash_paths(*paths, command: nil, **_)
         return if paths.empty?
 
-        stdout, stderr, = system_command HOMEBREW_LIBRARY_PATH/"cask/utils/trash.swift",
-                                         args:         paths,
-                                         print_stderr: false
+        stdout, = system_command HOMEBREW_LIBRARY_PATH/"cask/utils/trash.swift",
+                                 args:         paths,
+                                 print_stderr: Homebrew::EnvConfig.developer?
 
-        trashed = stdout.split(":").sort
-        untrashable = stderr.split(":").sort
+        trashed, _, untrashable = stdout.partition("\n")
+        trashed = trashed.split(":")
+        untrashable = untrashable.split(":")
 
-        return trashed, untrashable if untrashable.empty?
-
-        untrashable.delete_if do |path|
+        trashed_with_permissions, untrashable = untrashable.partition do |path|
           Utils.gain_permissions(path, ["-R"], SystemCommand) do
             system_command! HOMEBREW_LIBRARY_PATH/"cask/utils/trash.swift",
                             args:         [path],
-                            print_stderr: false
+                            print_stderr: Homebrew::EnvConfig.developer?
           end
 
           true
         rescue
           false
         end
+
+        trashed += trashed_with_permissions
+
+        return trashed, untrashable if untrashable.empty?
 
         opoo "The following files could not be trashed, please do so manually:"
         $stderr.puts untrashable
@@ -510,14 +514,14 @@ module Cask
           end
 
           # Directory counts as empty if it only contains a `.DS_Store`.
-          if children.include?(ds_store = resolved_path/".DS_Store")
-            Utils.gain_permissions_remove(ds_store, command: command)
+          if children.include?((ds_store = resolved_path/".DS_Store"))
+            Utils.gain_permissions_remove(ds_store, command:)
             children.delete(ds_store)
           end
 
-          next false unless recursive_rmdir(*children, command: command)
+          next false unless recursive_rmdir(*children, command:)
 
-          Utils.gain_permissions_rmdir(resolved_path, command: command)
+          Utils.gain_permissions_rmdir(resolved_path, command:)
 
           true
         end

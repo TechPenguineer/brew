@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # Formula Cookbook
 
 A *formula* is a package definition written in Ruby. It can be created with `brew create <URL>` where `<URL>` is a zip or tarball, installed with `brew install <formula>`, and debugged with `brew install --debug --verbose <formula>`. Formulae use the [Formula API](https://rubydoc.brew.sh/Formula) which provides various Homebrew-specific helpers.
@@ -9,19 +13,19 @@ A *formula* is a package definition written in Ruby. It can be created with `bre
 
 | term                 | description                                                               | example |
 | -------------------- | ------------------------------------------------------------------------- | ------- |
-| **formula**          | Homebrew package definition that builds from upstream sources             | `/usr/local/Homebrew/Library/Taps/homebrew/homebrew-core/Formula/f/foo.rb` |
-| **cask**             | Homebrew package definition that installs macOS native applications       | `/usr/local/Homebrew/Library/Taps/homebrew/homebrew-cask/Casks/b/bar.rb` |
-| **prefix**           | path in which Homebrew is installed                                       | `/usr/local` |
-| **keg**              | installation destination directory of a given **formula** version         | `/usr/local/Cellar/foo/0.1` |
-| **rack**             | directory containing one or more versioned **kegs**                       | `/usr/local/Cellar/foo` |
+| **formula**          | Homebrew package definition that builds from upstream sources             | `/opt/homebrew/Library/Taps/homebrew/homebrew-core/Formula/f/foo.rb` |
+| **cask**             | Homebrew package definition that installs macOS native applications       | `/opt/homebrew/Library/Taps/homebrew/homebrew-cask/Casks/b/bar.rb` |
+| **prefix**           | path in which Homebrew is installed                                       | `/opt/homebrew` |
+| **keg**              | installation destination directory of a given **formula** version         | `/opt/homebrew/Cellar/foo/0.1` |
+| **rack**             | directory containing one or more versioned **kegs**                       | `/opt/homebrew/Cellar/foo` |
 | **keg-only**         | a **formula** is *keg-only* if it is not symlinked into Homebrew's prefix | the [`openjdk`](https://github.com/Homebrew/homebrew-core/blob/HEAD/Formula/o/openjdk.rb) formula |
-| **opt prefix**       | a symlink to the active version of a **keg**                              | `/usr/local/opt/foo` |
-| **Cellar**           | directory containing one or more named **racks**                          | `/usr/local/Cellar` |
-| **Caskroom**         | directory containing one or more named **casks**                          | `/usr/local/Caskroom` |
+| **opt prefix**       | a symlink to the active version of a **keg**                              | `/opt/homebrew/opt/foo` |
+| **Cellar**           | directory containing one or more named **racks**                          | `/opt/homebrew/Cellar` |
+| **Caskroom**         | directory containing one or more named **casks**                          | `/opt/homebrew/Caskroom` |
 | **external command** | `brew` subcommand defined outside of the Homebrew/brew GitHub repository  | [`brew alias`](https://github.com/Homebrew/homebrew-aliases) |
-| **tap**              | directory (and usually Git repository) of **formulae**, **casks** and/or **external commands**       | `/usr/local/Homebrew/Library/Taps/homebrew/homebrew-core` |
+| **tap**              | directory (and usually Git repository) of **formulae**, **casks** and/or **external commands**       | `/opt/homebrew/Library/Taps/homebrew/homebrew-core` |
 | **bottle**           | pre-built **keg** poured into a **rack** of the **Cellar** instead of building from upstream sources | `qt--6.5.1.ventura.bottle.tar.gz` |
-| **tab**              | information about a **keg**, e.g. whether it was poured from a **bottle** or built from source       | `/usr/local/Cellar/foo/0.1/INSTALL_RECEIPT.json` |
+| **tab**              | information about a **keg**, e.g. whether it was poured from a **bottle** or built from source       | `/opt/homebrew/Cellar/foo/0.1/INSTALL_RECEIPT.json` |
 | **Brew Bundle**      | an [extension of Homebrew](https://github.com/Homebrew/homebrew-bundle) to describe dependencies     | `brew 'myservice', restart_service: true` |
 | **Brew Services**    | an [extension of Homebrew](https://github.com/Homebrew/homebrew-services) to manage services         | `brew services start myservice` |
 
@@ -175,7 +179,7 @@ conflicts_with "blueduck", because: "yellowduck also ships a duck binary"
 
 In Homebrew we sometimes accept formulae updates that don’t include a version bump. These include resource updates, new patches or fixing a security issue with a formula.
 
-Occasionally, these updates require a forced-recompile of the formula itself or its dependents to either ensure formulae continue to function as expected or to close a security issue. This forced-recompile is known as a [`revision`](https://rubydoc.brew.sh/Formula#revision%3D-class_method) and is inserted underneath the [`homepage`](https://rubydoc.brew.sh/Formula#homepage%3D-class_method)/[`url`](https://rubydoc.brew.sh/Formula#url-class_method)/[`sha256`](https://rubydoc.brew.sh/Formula#sha256%3D-class_method) block.
+Occasionally, these updates require a forced-recompile of the formula itself or its dependents to either ensure formulae continue to function as expected or to close a security issue. This forced-recompile is known as a [`revision`](https://rubydoc.brew.sh/Formula#revision%3D-class_method) and is inserted underneath the [`homepage`](https://rubydoc.brew.sh/Formula#homepage%3D-class_method)/[`url`](https://rubydoc.brew.sh/Formula#url-class_method)/[`sha256`](https://rubydoc.brew.sh/Formula#sha256%3D-class_method)/[`license`](https://rubydoc.brew.sh/Formula#license-class_method) block.
 
 When a dependent of a formula fails to build against a new version of that dependency it must receive a [`revision`](https://rubydoc.brew.sh/Formula#revision%3D-class_method). An example of such failure is in [this issue report](https://github.com/Homebrew/legacy-homebrew/issues/31195) and [its fix](https://github.com/Homebrew/legacy-homebrew/pull/31207).
 
@@ -192,14 +196,14 @@ When a version scheme of a formula fails to recognise a new version as newer it 
 When you already have a lot of formulae installed, it's easy to miss a common dependency. You can double-check which libraries a binary links to with the `otool` command (perhaps you need to use `xcrun otool`):
 
 ```console
-$ otool -L /usr/local/bin/ldapvi
-/usr/local/bin/ldapvi:
-    /usr/local/opt/openssl/lib/libssl.1.0.0.dylib (compatibility version 1.0.0, current version 1.0.0)
-    /usr/local/opt/openssl/lib/libcrypto.1.0.0.dylib (compatibility version 1.0.0, current version 1.0.0)
-    /usr/local/lib/libglib-2.0.0.dylib (compatibility version 4201.0.0, current version 4201.0.0)
-    /usr/local/opt/gettext/lib/libintl.8.dylib (compatibility version 10.0.0, current version 10.2.0)
-    /usr/local/opt/readline/lib/libreadline.6.dylib (compatibility version 6.0.0, current version 6.3.0)
-    /usr/local/lib/libpopt.0.dylib (compatibility version 1.0.0, current version 1.0.0)
+$ otool -L /opt/homebrew/bin/ldapvi
+/opt/homebrew/bin/ldapvi:
+    /opt/homebrew/opt/openssl/lib/libssl.1.0.0.dylib (compatibility version 1.0.0, current version 1.0.0)
+    /opt/homebrew/opt/openssl/lib/libcrypto.1.0.0.dylib (compatibility version 1.0.0, current version 1.0.0)
+    /opt/homebrew/lib/libglib-2.0.0.dylib (compatibility version 4201.0.0, current version 4201.0.0)
+    /opt/homebrew/opt/gettext/lib/libintl.8.dylib (compatibility version 10.0.0, current version 10.2.0)
+    /opt/homebrew/opt/readline/lib/libreadline.6.dylib (compatibility version 6.0.0, current version 6.3.0)
+    /opt/homebrew/lib/libpopt.0.dylib (compatibility version 1.0.0, current version 1.0.0)
     /usr/lib/libncurses.5.4.dylib (compatibility version 5.4.0, current version 5.4.0)
     /System/Library/Frameworks/LDAP.framework/Versions/A/LDAP (compatibility version 1.0.0, current version 2.4.0)
     /usr/lib/libresolv.9.dylib (compatibility version 1.0.0, current version 1.0.0)
@@ -257,7 +261,7 @@ bin.env_script_all_files(libexec/"bin", GEM_HOME: ENV.fetch("GEM_HOME", nil))
 
 ### Python dependencies
 
-For python we [`resource`](https://rubydoc.brew.sh/Formula#resource-class_method)s for dependencies and there's automation to generate these for you. Running `brew update-python-resources <formula>` will automatically add the necessary [`resource`](https://rubydoc.brew.sh/Formula#resource-class_method) stanzas for the dependencies of your Python application to the formula. Note that `brew update-python-resources` is run automatically by `brew create` if you pass the `--python` switch. If `brew update-python-resources` is unable to determine the correct `resource` stanzas, [homebrew-pypi-poet](https://github.com/tdsmith/homebrew-pypi-poet) is a good third-party alternative that may help.
+For python we use [`resource`](https://rubydoc.brew.sh/Formula#resource-class_method)s for dependencies and there's automation to generate these for you. Running `brew update-python-resources <formula>` will automatically add the necessary [`resource`](https://rubydoc.brew.sh/Formula#resource-class_method) stanzas for the dependencies of your Python application to the formula. Note that `brew update-python-resources` is run automatically by `brew create` if you pass the `--python` switch. If `brew update-python-resources` is unable to determine the correct `resource` stanzas, [homebrew-pypi-poet](https://github.com/tdsmith/homebrew-pypi-poet) is a good third-party alternative that may help.
 
 ### All other cases
 
@@ -322,15 +326,23 @@ Some advice for specific cases:
 * If your test requires a test file that isn't a standard test fixture, you can install it from a source repository during the `test` phase with a [`resource`](https://rubydoc.brew.sh/Formula#resource-class_method) block, like this:
 
 ```ruby
-resource("testdata") do
-  url "https://example.com/input.foo"
-  sha256 "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-end
-
 test do
+  resource "testdata" do
+    url "https://example.com/input.foo"
+    sha256 "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  end
+
   resource("testdata").stage do
     assert_match "OK", shell_output("#{bin}/foo build-foo input.foo")
   end
+end
+```
+
+* If the binary only writes to `stderr`, you can redirect `stderr` to `stdout` for assertions with `shell_output`. For example:
+
+```ruby
+test do
+  assert_match "Output on stderr", shell_output("#{bin}/formula-program 2>&1", 2)
 end
 ```
 
@@ -346,7 +358,7 @@ In case there are specific issues with the Homebrew packaging (compared to how t
 
     ==> Caveats
     By default, binaries installed by gem will be placed into:
-      /usr/local/lib/ruby/gems/bin
+      /opt/homebrew/lib/ruby/gems/3.4.0/bin
 
     You may want to add this to your PATH.
 
@@ -401,11 +413,11 @@ The established standard for Git commit messages is:
 * two (2) newlines, then
 * explain the commit thoroughly.
 
-At Homebrew, we like to put the name of the formula up front like so: `foobar 7.3 (new formula)`.
+At Homebrew, we require the name of the formula up front like so: `foobar 7.3 (new formula)`.
 
 This may seem crazy short, but you’ll find that forcing yourself to summarise the commit encourages you to be atomic and concise. If you can’t summarise it in 50 to 80 characters, you’re probably trying to commit two commits as one. For a more thorough explanation, please read Tim Pope’s excellent blog post, [A Note About Git Commit Messages](https://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html).
 
-The preferred commit message format for simple version updates is `foobar 7.3` and for fixes is `foobar: fix flibble matrix.`. Please squash your commits into one with this message format, otherwise your PR will be replaced by our autosquash workflow.
+The required commit message format for simple version updates is `foobar 7.3` and for fixes is `foobar: fix flibble matrix.`. Please squash your commits into one with this message format, otherwise your PR will be replaced by our autosquash workflow.
 
 Ensure you reference any relevant GitHub issue, e.g. `Closes #12345` in the commit message. Homebrew’s history is the first thing future contributors will look to when trying to understand the current state of formulae they’re interested in.
 
@@ -448,7 +460,7 @@ end
 
 ### Standard arguments
 
-For any formula using a well-known build system, there'll be arguments that should be passed during compilation such that its build conforms to Homebrew standards. These have been collected into a set of `std_*_args` methods (like [`std_configure_args`](https://rubydoc.brew.sh/Formula#std_configure_args-instance_method) and [`std_cmake_args`](https://rubydoc.brew.sh/Formula#std_cmake_args-instance_method) as seen in the [output of `brew create`](#grab-the-url)) that set the build type and installation paths, plus any other applicable options.
+For any formula using certain well-known build systems, there will be arguments that should be passed during compilation so that the build conforms to Homebrew standards. These have been collected into a set of `std_*_args` methods.
 
 Most of these methods accept parameters to customize their output. For example, to set the install prefix to [**`libexec`**](#variables-for-directory-locations) for `configure` or `cmake`:
 
@@ -457,11 +469,88 @@ system "./configure", *std_configure_args(prefix: libexec)
 system "cmake", "-S", ".", "-B", "build", *std_cmake_args(install_prefix: libexec)
 ```
 
+The `std_*_args` methods, as well as the arguments they pass, are:
+
+#### `std_cabal_v2_args`
+
+```ruby
+"--jobs=#{ENV.make_jobs}"
+"--max-backjumps=100000"
+"--install-method=copy"
+"--installdir=#{bin}"
+```
+
+#### `std_cargo_args`
+
+```ruby
+"--locked"
+"--root=#{root}"
+"--path=#{path}"
+```
+
+#### `std_cmake_args`
+
+```ruby
+"-DCMAKE_INSTALL_PREFIX=#{install_prefix}"
+"-DCMAKE_INSTALL_LIBDIR=#{install_libdir}"
+"-DCMAKE_BUILD_TYPE=Release"
+"-DCMAKE_FIND_FRAMEWORK=#{find_framework}"
+"-DCMAKE_VERBOSE_MAKEFILE=ON"
+"-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=#{HOMEBREW_LIBRARY_PATH}/cmake/trap_fetchcontent_provider.cmake"
+"-Wno-dev"
+"-DBUILD_TESTING=OFF"
+```
+
+#### `std_configure_args`
+
+```ruby
+"--disable-debug"
+"--disable-dependency-tracking"
+"--prefix=#{prefix}"
+"--libdir=#{libdir}"
+```
+
+#### `std_go_args`
+
+```ruby
+"-trimpath"
+"-o=#{output}"
+```
+
+#### `std_meson_args`
+
+```ruby
+"--prefix=#{prefix}"
+"--libdir=#{lib}"
+"--buildtype=release"
+"--wrap-mode=nofallback"
+```
+
+#### `std_npm_args`
+
+```ruby
+"-ddd"
+"--global"
+"--build-from-source"
+"--cache=$(brew --cache)/npm_cache"
+"--prefix=#{libexec}"
+```
+
+#### `std_pip_args`
+
+```ruby
+"--verbose"
+"--no-deps"
+"--no-binary=:all:"
+"--ignore-installed"
+"--no-compile"
+```
+
 ### `bin.install "foo"`
 
-You’ll see stuff like this in some formulae. This moves the file `foo` into the formula’s `bin` directory (`/usr/local/Cellar/pkg/0.1/bin`) and makes it executable (`chmod 0555 foo`).
+You’ll see stuff like this in some formulae. This moves the file `foo` into the formula’s `bin` directory (`/opt/homebrew/Cellar/pkg/0.1/bin`) and makes it executable (`chmod 0555 foo`).
 
-You can also rename the file during the installation process. This can be useful for adding a prefix to binaries that would otherwise cause conflicts with another formula, or for removing a file extension. For example, to install `foo.py` into the formula's `bin` directory (`/usr/local/Cellar/pkg/0.1/bin`) as just `foo` instead of `foo.py`:
+You can also rename the file during the installation process. This can be useful for adding a prefix to binaries that would otherwise cause conflicts with another formula, or for removing a file extension. For example, to install `foo.py` into the formula's `bin` directory (`/opt/homebrew/Cellar/pkg/0.1/bin`) as just `foo` instead of `foo.py`:
 
 ```ruby
 bin.install "foo.py" => "foo"
@@ -564,6 +653,8 @@ patch :p0, "..."
 
 In embedded patches, the string "HOMEBREW\_PREFIX" is replaced with the value of the constant `HOMEBREW_PREFIX` before the patch is applied.
 
+In external patches, the string "@@HOMEBREW\_PREFIX@@" is replaced with the value of the constant `HOMEBREW_PREFIX` before the patch is applied.
+
 ### Creating the diff
 
 ```sh
@@ -622,7 +713,7 @@ end
 Inside `def install` and `test do`, don't use these `on_*` methods. Instead, use `if` statements and the following conditionals:
 
 * `OS.mac?` and `OS.linux?` return `true` or `false` based on the OS
-* `Hardware::CPU.intel?` and `Hardware::CPU.arm?` return `true` or `false` based on the arch
+* `Hardware::CPU.arm?` and `Hardware::CPU.intel?` return `true` or `false` based on the arch
 * `MacOS.version` returns the current macOS version. Use `==`, `<=` or `>=` to compare to symbols corresponding to macOS versions (e.g. `if MacOS.version >= :mojave`)
 
 See the [`icoutils`](https://github.com/Homebrew/homebrew-core/blob/442f9cc511ce6dfe75b96b2c83749d90dde914d2/Formula/i/icoutils.rb#L36) formula for an example.
@@ -776,31 +867,31 @@ Generally we'd rather you were specific about which files or directories need to
 
 | name                  | default path                                   | example |
 | --------------------- | ---------------------------------------------- | ------- |
-| **`HOMEBREW_PREFIX`** | output of `$(brew --prefix)`                   | `/usr/local` |
-| **`prefix`**          | `#{HOMEBREW_PREFIX}/Cellar/#{name}/#{version}` | `/usr/local/Cellar/foo/0.1` |
-| **`opt_prefix`**      | `#{HOMEBREW_PREFIX}/opt/#{name}`               | `/usr/local/opt/foo` |
-| **`bin`**             | `#{prefix}/bin`                                | `/usr/local/Cellar/foo/0.1/bin` |
-| **`doc`**             | `#{prefix}/share/doc/#{name}`                  | `/usr/local/Cellar/foo/0.1/share/doc/foo` |
-| **`include`**         | `#{prefix}/include`                            | `/usr/local/Cellar/foo/0.1/include` |
-| **`info`**            | `#{prefix}/share/info`                         | `/usr/local/Cellar/foo/0.1/share/info` |
-| **`lib`**             | `#{prefix}/lib`                                | `/usr/local/Cellar/foo/0.1/lib` |
-| **`libexec`**         | `#{prefix}/libexec`                            | `/usr/local/Cellar/foo/0.1/libexec` |
-| **`man`**             | `#{prefix}/share/man`                          | `/usr/local/Cellar/foo/0.1/share/man` |
-| **`man[1-8]`**        | `#{prefix}/share/man/man[1-8]`                 | `/usr/local/Cellar/foo/0.1/share/man/man[1-8]` |
-| **`sbin`**            | `#{prefix}/sbin`                               | `/usr/local/Cellar/foo/0.1/sbin` |
-| **`share`**           | `#{prefix}/share`                              | `/usr/local/Cellar/foo/0.1/share` |
-| **`pkgshare`**        | `#{prefix}/share/#{name}`                      | `/usr/local/Cellar/foo/0.1/share/foo` |
-| **`elisp`**           | `#{prefix}/share/emacs/site-lisp/#{name}`      | `/usr/local/Cellar/foo/0.1/share/emacs/site-lisp/foo` |
-| **`frameworks`**      | `#{prefix}/Frameworks`                         | `/usr/local/Cellar/foo/0.1/Frameworks` |
-| **`kext_prefix`**     | `#{prefix}/Library/Extensions`                 | `/usr/local/Cellar/foo/0.1/Library/Extensions` |
-| **`zsh_function`**    | `#{prefix}/share/zsh/site-functions`           | `/usr/local/Cellar/foo/0.1/share/zsh/site-functions` |
-| **`fish_function`**   | `#{prefix}/share/fish/vendor_functions`        | `/usr/local/Cellar/foo/0.1/share/fish/vendor_functions` |
-| **`bash_completion`** | `#{prefix}/etc/bash_completion.d`              | `/usr/local/Cellar/foo/0.1/etc/bash_completion.d` |
-| **`zsh_completion`**  | `#{prefix}/share/zsh/site-functions`           | `/usr/local/Cellar/foo/0.1/share/zsh/site-functions` |
-| **`fish_completion`** | `#{prefix}/share/fish/vendor_completions.d`    | `/usr/local/Cellar/foo/0.1/share/fish/vendor_completions.d` |
-| **`etc`**             | `#{HOMEBREW_PREFIX}/etc`                       | `/usr/local/etc` |
-| **`pkgetc`**          | `#{HOMEBREW_PREFIX}/etc/#{name}`               | `/usr/local/etc/foo` |
-| **`var`**             | `#{HOMEBREW_PREFIX}/var`                       | `/usr/local/var` |
+| **`HOMEBREW_PREFIX`** | output of `$(brew --prefix)`                   | `/opt/homebrew` |
+| **`prefix`**          | `#{HOMEBREW_PREFIX}/Cellar/#{name}/#{version}` | `/opt/homebrew/Cellar/foo/0.1` |
+| **`opt_prefix`**      | `#{HOMEBREW_PREFIX}/opt/#{name}`               | `/opt/homebrew/opt/foo` |
+| **`bin`**             | `#{prefix}/bin`                                | `/opt/homebrew/Cellar/foo/0.1/bin` |
+| **`doc`**             | `#{prefix}/share/doc/#{name}`                  | `/opt/homebrew/Cellar/foo/0.1/share/doc/foo` |
+| **`include`**         | `#{prefix}/include`                            | `/opt/homebrew/Cellar/foo/0.1/include` |
+| **`info`**            | `#{prefix}/share/info`                         | `/opt/homebrew/Cellar/foo/0.1/share/info` |
+| **`lib`**             | `#{prefix}/lib`                                | `/opt/homebrew/Cellar/foo/0.1/lib` |
+| **`libexec`**         | `#{prefix}/libexec`                            | `/opt/homebrew/Cellar/foo/0.1/libexec` |
+| **`man`**             | `#{prefix}/share/man`                          | `/opt/homebrew/Cellar/foo/0.1/share/man` |
+| **`man[1-8]`**        | `#{prefix}/share/man/man[1-8]`                 | `/opt/homebrew/Cellar/foo/0.1/share/man/man[1-8]` |
+| **`sbin`**            | `#{prefix}/sbin`                               | `/opt/homebrew/Cellar/foo/0.1/sbin` |
+| **`share`**           | `#{prefix}/share`                              | `/opt/homebrew/Cellar/foo/0.1/share` |
+| **`pkgshare`**        | `#{prefix}/share/#{name}`                      | `/opt/homebrew/Cellar/foo/0.1/share/foo` |
+| **`elisp`**           | `#{prefix}/share/emacs/site-lisp/#{name}`      | `/opt/homebrew/Cellar/foo/0.1/share/emacs/site-lisp/foo` |
+| **`frameworks`**      | `#{prefix}/Frameworks`                         | `/opt/homebrew/Cellar/foo/0.1/Frameworks` |
+| **`kext_prefix`**     | `#{prefix}/Library/Extensions`                 | `/opt/homebrew/Cellar/foo/0.1/Library/Extensions` |
+| **`zsh_function`**    | `#{prefix}/share/zsh/site-functions`           | `/opt/homebrew/Cellar/foo/0.1/share/zsh/site-functions` |
+| **`fish_function`**   | `#{prefix}/share/fish/vendor_functions`        | `/opt/homebrew/Cellar/foo/0.1/share/fish/vendor_functions` |
+| **`bash_completion`** | `#{prefix}/etc/bash_completion.d`              | `/opt/homebrew/Cellar/foo/0.1/etc/bash_completion.d` |
+| **`zsh_completion`**  | `#{prefix}/share/zsh/site-functions`           | `/opt/homebrew/Cellar/foo/0.1/share/zsh/site-functions` |
+| **`fish_completion`** | `#{prefix}/share/fish/vendor_completions.d`    | `/opt/homebrew/Cellar/foo/0.1/share/fish/vendor_completions.d` |
+| **`etc`**             | `#{HOMEBREW_PREFIX}/etc`                       | `/opt/homebrew/etc` |
+| **`pkgetc`**          | `#{HOMEBREW_PREFIX}/etc/#{name}`               | `/opt/homebrew/etc/foo` |
+| **`var`**             | `#{HOMEBREW_PREFIX}/var`                       | `/opt/homebrew/var` |
 | **`buildpath`**       | temporary directory somewhere on your system | `/private/tmp/[formula-name]-0q2b/[formula-name]` |
 
 These can be used, for instance, in code such as:
@@ -918,7 +1009,7 @@ class Foo < Formula
   url "https://example.com/foo-1.0.tar.gz"
 
   def post_install
-    rm_f pkgetc/"cert.pem"
+    rm pkgetc/"cert.pem" if File.exist?(pkgetc/"cert.pem")
     pkgetc.install_symlink Formula["ca-certificates"].pkgetc/"cert.pem"
   end
   # ...
@@ -931,7 +1022,7 @@ In the above example, the [`libressl`](https://github.com/Homebrew/homebrew-core
 
 For example, Ruby 1.9’s gems should be installed to `var/lib/ruby/` so that gems don’t need to be reinstalled when upgrading Ruby. You can usually do this with symlink trickery, or (ideally) a configure option.
 
-Another example would be configuration files that should not be overwritten on package upgrades. If after installation you find that to-be-persisted configuration files are not copied but instead *symlinked* into `/usr/local/etc/` from the Cellar, this can often be rectified by passing an appropriate argument to the package’s configure script. That argument will vary depending on a given package’s configure script and/or Makefile, but one example might be: `--sysconfdir=#{etc}`
+Another example would be configuration files that should not be overwritten on package upgrades. If after installation you find that to-be-persisted configuration files are not copied but instead *symlinked* into `$(brew --prefix)/etc/` from the Cellar, this can often be rectified by passing an appropriate argument to the package’s configure script. That argument will vary depending on a given package’s configure script and/or Makefile, but one example might be: `--sysconfdir=#{etc}`
 
 ### Service files
 
@@ -970,7 +1061,7 @@ end
 
 #### Service block methods
 
-This table lists the options you can set within a `service` block. The `run` or `name` field must be defined inside the service block. The `run` field indicates what command to run and is required before using fields other than `name`.
+This table lists the options you can set within a `service` block. The `run` or `name` field must be defined inside the service block. If `name` is defined without `run`, then Homebrew makes no attempt to change the package-provided service file according these fields. The `run` field indicates what command to run, instructs Homebrew to create a service description file using options set in the block, and therefore is required before using fields other than `name` and `require_root`.
 
 | method                  | default      | macOS | Linux | description |
 | ----------------------- | ------------ | :---: | :---: | ----------- |
@@ -980,7 +1071,7 @@ This table lists the options you can set within a `service` block. The `run` or 
 | `cron`                  | -            |  yes  |  yes  | controls the trigger times, required for the `:cron` type |
 | `keep_alive`            | `false`      |  yes  |  yes  | [sets contexts](#keep_alive-options) in which the service will keep the process running |
 | `launch_only_once`      | `false`      |  yes  |  yes  | whether the command should only run once |
-| `require_root`          | `false`      |  yes  |  yes  | whether the service requires root access |
+| `require_root`          | `false`      |  yes  |  yes  | whether the service requires root access. If true, Homebrew hints at using `sudo` on various occasions, but does not enforce it |
 | `environment_variables` | -            |  yes  |  yes  | hash of variables to set |
 | `working_dir`           | -            |  yes  |  yes  | directory to operate from |
 | `root_dir`              | -            |  yes  |  yes  | directory to use as a chroot for the process |
@@ -991,7 +1082,7 @@ This table lists the options you can set within a `service` block. The `run` or 
 | `process_type`          | -            |  yes  | no-op | type of process to manage: `:background`, `:standard`, `:interactive` or `:adaptive` |
 | `macos_legacy_timers`   | -            |  yes  | no-op | timers created by `launchd` jobs are coalesced unless this is set |
 | `sockets`               | -            |  yes  | no-op | socket that is created as an accesspoint to the service |
-| `name`                  | -            |  yes  |  yes  | a hash with the `launchd` service name on macOS and/or the `systemd` service name on Linux |
+| `name`                  | -            |  yes  |  yes  | a hash with the `launchd` service name on macOS and/or the `systemd` service name on Linux. Homebrew generates a default name for the service file if this is not present |
 
 For services that are kept alive after starting you can use the default `run_type`:
 
@@ -1174,6 +1265,8 @@ brew search --fink foo
 ### Superenv notes
 
 `superenv` is our "super environment" that isolates builds by removing `/usr/local/bin` and all user `PATH`s that are not essential for the build. It does this because user `PATH`s are often full of stuff that breaks builds. `superenv` also removes bad flags from the commands passed to `clang`/`gcc` and injects others (for example all [`keg_only`](https://rubydoc.brew.sh/Formula#keg_only-class_method) dependencies are added to the `-I` and `-L` flags).
+
+If in your local Homebrew build of your new formula, you see `Operation not permitted` errors, this will be because your new formula tried to write to the disk outside of your sandbox area. This is enforced on macOS by `sandbox-exec`.
 
 ### Fortran
 

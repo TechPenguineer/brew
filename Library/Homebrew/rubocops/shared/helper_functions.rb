@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "rubocop"
@@ -11,8 +11,6 @@ end
 module RuboCop
   module Cop
     # Helper functions for cops.
-    #
-    # @api private
     module HelperFunctions
       include RangeHelp
 
@@ -34,7 +32,10 @@ module RuboCop
         @line_no = line_number(node)
         @source_buf = source_buffer(node)
         @offensive_node = node
-        @offensive_source_range = source_range(@source_buf, @line_no, @column, @length)
+        @offensive_source_range = T.let(
+          source_range(@source_buf, @line_no, @column, @length),
+          T.nilable(Parser::Source::Range),
+        )
         match_object
       end
 
@@ -55,6 +56,7 @@ module RuboCop
       end
 
       # Source buffer is required as an argument to report style violations.
+      sig { params(node: RuboCop::AST::Node).returns(Parser::Source::Buffer) }
       def source_buffer(node)
         node.source_range.source_buffer
       end
@@ -176,10 +178,19 @@ module RuboCop
 
       # Matches a method with a receiver. Yields to a block with matching method node.
       #
-      # @example to match `Formula.factory(name)`
-      #   find_instance_method_call(node, "Formula", :factory)
-      # @example to match `build.head?`
-      #   find_instance_method_call(node, :build, :head?)
+      # ### Examples
+      #
+      # Match `Formula.factory(name)`.
+      #
+      # ```ruby
+      # find_instance_method_call(node, "Formula", :factory)
+      # ```
+      #
+      # Match `build.head?`.
+      #
+      # ```ruby
+      # find_instance_method_call(node, :build, :head?)
+      # ```
       def find_instance_method_call(node, instance, method_name)
         methods = find_every_method_call_by_name(node, method_name)
         methods.each do |method|
@@ -196,8 +207,13 @@ module RuboCop
 
       # Matches receiver part of method. Yields to a block with parent node of receiver.
       #
-      # @example to match `ARGV.<whatever>()`
-      #   find_instance_call(node, "ARGV")
+      # ### Example
+      #
+      # Match `ARGV.<whatever>()`.
+      #
+      # ```ruby
+      # find_instance_call(node, "ARGV")
+      # ```
       def find_instance_call(node, name)
         node.each_descendant(:send) do |method_node|
           next if method_node.receiver.nil?

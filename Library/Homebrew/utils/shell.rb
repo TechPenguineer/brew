@@ -1,8 +1,12 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 module Utils
   module Shell
+    extend T::Helpers
+
+    requires_ancestor { Kernel }
+
     module_function
 
     # Take a path and heuristically convert it to a shell name,
@@ -60,10 +64,13 @@ module Utils
         rc_profile = "#{Dir.home}/.rcrc"
         return rc_profile if File.exist? rc_profile
       when :zsh
-        return "#{ENV["ZDOTDIR"]}/.zshrc" if ENV["ZDOTDIR"].present?
+        return "#{ENV["HOMEBREW_ZDOTDIR"]}/.zshrc" if ENV["HOMEBREW_ZDOTDIR"].present?
       end
 
-      SHELL_PROFILE_MAP.fetch(preferred, "~/.profile")
+      shell = preferred
+      return "~/.profile" if shell.nil?
+
+      SHELL_PROFILE_MAP.fetch(shell, "~/.profile")
     end
 
     sig { params(variable: String, value: String).returns(T.nilable(String)) }
@@ -94,42 +101,45 @@ module Utils
       end
     end
 
-    SHELL_PROFILE_MAP = {
-      bash: "~/.profile",
-      csh:  "~/.cshrc",
-      fish: "~/.config/fish/config.fish",
-      ksh:  "~/.kshrc",
-      mksh: "~/.kshrc",
-      rc:   "~/.rcrc",
-      sh:   "~/.profile",
-      tcsh: "~/.tcshrc",
-      zsh:  "~/.zshrc",
-    }.freeze
+    SHELL_PROFILE_MAP = T.let(
+      {
+        bash: "~/.profile",
+        csh:  "~/.cshrc",
+        fish: "~/.config/fish/config.fish",
+        ksh:  "~/.kshrc",
+        mksh: "~/.kshrc",
+        rc:   "~/.rcrc",
+        sh:   "~/.profile",
+        tcsh: "~/.tcshrc",
+        zsh:  "~/.zshrc",
+      }.freeze,
+      T::Hash[Symbol, String],
+    )
 
-    UNSAFE_SHELL_CHAR = %r{([^A-Za-z0-9_\-.,:/@~\n])}
+    UNSAFE_SHELL_CHAR = %r{([^A-Za-z0-9_\-.,:/@~+\n])}
 
     sig { params(str: String).returns(String) }
     def csh_quote(str)
-      # ruby's implementation of shell_escape
+      # Ruby's implementation of `shell_escape`.
       str = str.to_s
       return "''" if str.empty?
 
       str = str.dup
-      # anything that isn't a known safe character is padded
+      # Anything that isn't a known safe character is padded.
       str.gsub!(UNSAFE_SHELL_CHAR, "\\\\" + "\\1") # rubocop:disable Style/StringConcatenation
-      # newlines have to be specially quoted in csh
+      # Newlines have to be specially quoted in `csh`.
       str.gsub!("\n", "'\\\n'")
       str
     end
 
     sig { params(str: String).returns(String) }
     def sh_quote(str)
-      # ruby's implementation of shell_escape
+      # Ruby's implementation of `shell_escape`.
       str = str.to_s
       return "''" if str.empty?
 
       str = str.dup
-      # anything that isn't a known safe character is padded
+      # Anything that isn't a known safe character is padded.
       str.gsub!(UNSAFE_SHELL_CHAR, "\\\\" + "\\1") # rubocop:disable Style/StringConcatenation
       str.gsub!("\n", "'\n'")
       str

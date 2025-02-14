@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # Cask Cookbook
 
 Each cask is a Ruby block, beginning with a special header line. The cask definition itself is always enclosed in a `do … end` block. Example:
@@ -125,7 +129,7 @@ Each cask must declare one or more *artifacts* (i.e. something to install).
 | [`pkg`](#stanza-pkg)             | yes                           | Relative path to a `.pkg` file containing the distribution. |
 | [`installer`](#stanza-installer) | yes                           | Describes an executable which must be run to complete the installation. |
 | [`binary`](#stanza-binary)       | yes                           | Relative path to a Binary that should be linked into the `$(brew --prefix)/bin` folder on installation. |
-| `manpage`                        | yes                           | Relative path to a Man Page that should be linked into the respective man page folder on installation, e.g. `/usr/local/share/man/man3` for `my_app.3`. |
+| `manpage`                        | yes                           | Relative path to a Man Page that should be linked into the respective man page folder on installation, e.g. `/opt/homebrew/share/man/man3` for `my_app.3`. |
 | `colorpicker`                    | yes                           | Relative path to a ColorPicker plugin that should be moved into the `~/Library/ColorPickers` folder on installation. |
 | `dictionary`                     | yes                           | Relative path to a Dictionary that should be moved into the `~/Library/Dictionaries` folder on installation. |
 | `font`                           | yes                           | Relative path to a Font that should be moved into the `~/Library/Fonts` folder on installation. |
@@ -413,17 +417,17 @@ The available symbols for hardware are:
 
 | symbol     | meaning        |
 | ---------- | -------------- |
+| `:arm64`   | Apple Silicon |
 | `:x86_64`  | 64-bit Intel |
 | `:intel`   | 64-bit Intel |
-| `:arm64`   | Apple Silicon |
 
 The following are all valid expressions:
 
 ```ruby
+depends_on arch: :arm64
 depends_on arch: :intel
 depends_on arch: :x86_64            # same meaning as above
 depends_on arch: [:x86_64]          # same meaning as above
-depends_on arch: :arm64
 ```
 
 #### `depends_on` parameters
@@ -616,7 +620,7 @@ brew install firefox --language=it
 
 ### Stanza: `livecheck`
 
-The `livecheck` stanza is used to automatically fetch the latest version of a cask from changelogs, release notes, appcasts, etc. Since the main [homebrew/cask](https://github.com/Homebrew/homebrew-cask) repository only accepts submissions for stable versions of software (and [documented exceptions](https://docs.brew.sh/Acceptable-Casks#but-there-is-no-stable-version)), this allows for verifying that the submitted version is the latest, and alerting when a newer version is available using [`brew livecheck`](Brew-Livecheck.md).
+The `livecheck` stanza is used to automatically fetch the latest version of a cask from changelogs, release notes, appcasts, etc.
 
 Every `livecheck` block must contain a `url`, which can be either a string or a symbol pointing to other URLs in the cask (`:url` or `:homepage`).
 
@@ -966,7 +970,7 @@ When a plain URL string is insufficient to fetch a file, additional information 
 
 #### When URL and homepage domains differ, add `verified:`
 
-When the domains of `url` and `homepage` differ, the discrepancy should be documented with the `verified:` parameter, repeating the smallest possible portion of the URL that uniquely identifies the app or vendor, excluding the protocol. (Example: [shotcut.rb](https://github.com/Homebrew/homebrew-cask/blob/aa461148bbb5119af26b82cccf5003e2b4e50d95/Casks/s/shotcut.rb#L5-L6))
+When the domains of `url` and `homepage` differ, the discrepancy should be documented with the `verified:` parameter, repeating the smallest possible portion of the URL that uniquely identifies the app or vendor, excluding the protocol. (Example: [1password-cli.rb](https://github.com/Homebrew/homebrew-cask/blob/ec2476459ead02e80391f44d42a2b48a18bf373d/Casks/1/1password-cli.rb#L8-L9))
 
 This must be added so a user auditing the cask knows the URL was verified by the Homebrew Cask team as the one provided by the vendor, even though it may look unofficial. It is our responsibility as Homebrew Cask maintainers to verify both the `url` and `homepage` information when first added (or subsequently modified, apart from versioning).
 
@@ -1053,7 +1057,7 @@ The block will be called immediately before downloading; its result value will b
 
 You can use the `url` stanza with either a direct argument or a block but not with both.
 
-Example of using the block syntax: [vlc-nightly.rb](https://github.com/Homebrew/homebrew-cask-versions/blob/d3b9d0fdcf83f1f87c3ad64a852323a6e687c5f7/Casks/vlc-nightly.rb#L7-L12)
+Example of using the block syntax: [vlc@nightly.rb](https://github.com/Homebrew/homebrew-cask/blob/0b2b76ad8c3fbf4e1ee2f5e758640c4963ad6aaf/Casks/v/vlc%40nightly.rb#L7-L12)
 
 ##### Mixing additional URL parameters with the block syntax
 
@@ -1178,7 +1182,7 @@ If no additional files are discovered, instead of a zap stanza, include the foll
 
 Casks can deliver specific versions of artifacts depending on the current macOS release or CPU architecture by either tailoring the URL / SHA-256 hash / version, using the [`on_<system>` syntax](Formula-Cookbook.md#handling-different-system-configurations) (which replaces conditional statements using `MacOS.version` or `Hardware::CPU`), or both.
 
-If your cask's artifact is offered as separate downloads for Intel and Apple Silicon architectures, they'll presumably be downloadable at distinct URLs that differ only slightly. To adjust the URL depending on the current CPU architecture, supply a hash for each to the `arm:` and `intel:` parameters of `sha256`, and use the special `arch` stanza to define the unique components of the respective URLs for substitution in the `url`. Additional substitutions can be defined by calling `on_arch_conditional` directly. Example (from [libreoffice.rb](https://github.com/Homebrew/homebrew-cask/blob/a4164b8f5084fdaefb6e2e2f4f699270690b7845/Casks/l/libreoffice.rb#L1-L10)):
+If your cask's artifact is offered as separate downloads for Apple Silicon and Intel architectures, they'll presumably be downloadable at distinct URLs that differ only slightly. To adjust the URL depending on the current CPU architecture, supply a hash for each to the `arm:` and `intel:` parameters of `sha256`, and use the special `arch` stanza to define the unique components of the respective URLs for substitution in the `url`. Additional substitutions can be defined by calling `on_arch_conditional` directly. Example (from [libreoffice.rb](https://github.com/Homebrew/homebrew-cask/blob/a4164b8f5084fdaefb6e2e2f4f699270690b7845/Casks/l/libreoffice.rb#L1-L10)):
 
 ```ruby
 cask "libreoffice" do
@@ -1285,7 +1289,6 @@ This section describes the algorithm implemented in the `generate_cask_token` sc
 * [Cask Filenames](#cask-filenames)
 * [Cask Headers](#cask-headers)
 * [Cask Token Examples](#cask-token-examples)
-* [Tap-Specific Cask Token Examples](#tap-specific-cask-token-examples)
 * [Special Affixes](#special-affixes)
 
 ### Purpose
@@ -1375,6 +1378,14 @@ To convert the App’s Simplified Name (above) to a token:
 * Collapse a series of multiple hyphens into one hyphen.
 * Delete a leading or trailing hyphen.
 
+### Casks pinned to specific versions
+
+Casks pinned to a specific version of the application (i.e. [`carbon-copy-cloner@5`](https://github.com/Homebrew/homebrew-cask/blob/1b8f44198e5e184c597ee07454a1e10f97f36b15/Casks/c/carbon-copy-cloner%405.rb)) should use the same token as the standard cask with a suffix of `@<version-number`. For Carbon Copy Cloner (`carbon-copy-cloner`), pinned to version 5, the token should be `carbon-copy-cloner@5`.
+
+### Casks pinned to development channels
+
+Casks that use an development "channel", such as betas, should use the same token as the standard cask with a suffix of `@<channel>`. For Google Chrome (`google-chrome`), using the "beta" channel, the token should be `google-chrome@beta`.
+
 ### Cask filenames
 
 Casks are stored in a Ruby file named after the token, with the file extension `.rb`.
@@ -1395,12 +1406,13 @@ These illustrate most of the rules for generating a token:
 | `LPK25 Editor.app`     | LPK25 Editor        | lpk25-editor     | `lpk25-editor.rb` |
 | `Sublime Text 2.app`   | Sublime Text        | sublime-text     | `sublime-text.rb` |
 
-#### Tap-specific cask token examples
+For versioned/development channel casks:
 
-Cask taps have naming conventions specific to each tap.
-
-* [Homebrew/cask-versions](https://github.com/Homebrew/homebrew-cask-versions/blob/HEAD/CONTRIBUTING.md#naming-versions-casks)
-* [Homebrew/cask-fonts](https://github.com/Homebrew/homebrew-cask-fonts/blob/HEAD/CONTRIBUTING.md#naming-font-casks)
+| Standard Cask Token     | Derivative          | Cask Token           | Filename  |
+|------------------------|---------------------|-----------------------|----------------------|
+| `google-chrome`        | Beta Channel        | `google-chrome@beta`  | `google-chrome@beta.rb` |
+| `vlc`                  | Nightly Channel     | `vlc@nightly`         | `vlc@nightly.rb` |
+| `carbon-copy-cloner`   | Pinned to version 5 | `carbon-copy-cloner@5`| `carbon-copy-cloner@5.rb` |
 
 ### Special affixes
 

@@ -4,6 +4,8 @@ require "keg"
 require "stringio"
 
 RSpec.describe Keg do
+  include FileUtils
+
   def setup_test_keg(name, version)
     path = HOMEBREW_CELLAR/name/version
     (path/"bin").mkpath
@@ -45,7 +47,7 @@ RSpec.describe Keg do
     expect(keg).to be_a_directory
     expect(keg).not_to be_an_empty_installation
 
-    (keg/"bin").rmtree
+    FileUtils.rm_r(keg/"bin")
     expect(keg).to be_an_empty_installation
 
     (keg/"bin").mkpath

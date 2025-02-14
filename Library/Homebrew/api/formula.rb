@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "extend/cachable"
@@ -7,14 +7,14 @@ require "api/download"
 module Homebrew
   module API
     # Helper functions for using the formula JSON API.
-    #
-    # @api private
     module Formula
       extend Cachable
 
+      DEFAULT_API_FILENAME = "formula.jws.json"
+
       private_class_method :cache
 
-      sig { params(name: String).returns(Hash) }
+      sig { params(name: String).returns(T::Hash[String, T.untyped]) }
       def self.fetch(name)
         Homebrew::API.fetch "formula/#{name}.json"
       end
@@ -31,39 +31,42 @@ module Homebrew
           cache: HOMEBREW_CACHE_API_SOURCE/"#{tap}/#{git_head}/Formula",
         )
         download.fetch
-        Formulary.factory(download.symlink_location,
-                          formula.active_spec_sym,
-                          alias_path: formula.alias_path,
-                          flags:      formula.class.build_flags)
+
+        with_env(HOMEBREW_FORBID_PACKAGES_FROM_PATHS: nil) do
+          Formulary.factory(download.symlink_location,
+                            formula.active_spec_sym,
+                            alias_path: formula.alias_path,
+                            flags:      formula.class.build_flags)
+        end
+      end
+
+      sig { returns(Pathname) }
+      def self.cached_json_file_path
+        HOMEBREW_CACHE_API/DEFAULT_API_FILENAME
       end
 
       sig { returns(T::Boolean) }
       def self.download_and_cache_data!
-        if Homebrew::API.internal_json_v3?
-          json_formulae, updated = Homebrew::API.fetch_json_api_file "internal/v3/homebrew-core.jws.json"
-          overwrite_cache! T.cast(json_formulae, T::Hash[String, T.untyped])
-        else
-          json_formulae, updated = Homebrew::API.fetch_json_api_file "formula.jws.json"
+        json_formulae, updated = Homebrew::API.fetch_json_api_file DEFAULT_API_FILENAME
 
-          cache["aliases"] = {}
-          cache["renames"] = {}
-          cache["formulae"] = json_formulae.to_h do |json_formula|
-            json_formula["aliases"].each do |alias_name|
-              cache["aliases"][alias_name] = json_formula["name"]
-            end
-            (json_formula["oldnames"] || [json_formula["oldname"]].compact).each do |oldname|
-              cache["renames"][oldname] = json_formula["name"]
-            end
-
-            [json_formula["name"], json_formula.except("name")]
+        cache["aliases"] = {}
+        cache["renames"] = {}
+        cache["formulae"] = json_formulae.to_h do |json_formula|
+          json_formula["aliases"].each do |alias_name|
+            cache["aliases"][alias_name] = json_formula["name"]
           end
+          (json_formula["oldnames"] || [json_formula["oldname"]].compact).each do |oldname|
+            cache["renames"][oldname] = json_formula["name"]
+          end
+
+          [json_formula["name"], json_formula.except("name")]
         end
 
         updated
       end
       private_class_method :download_and_cache_data!
 
-      sig { returns(T::Hash[String, Hash]) }
+      sig { returns(T::Hash[String, T.untyped]) }
       def self.all_formulae
         unless cache.key?("formulae")
           json_updated = download_and_cache_data!
@@ -93,7 +96,7 @@ module Homebrew
         cache["renames"]
       end
 
-      sig { returns(Hash) }
+      sig { returns(T::Hash[String, T.untyped]) }
       def self.tap_migrations
         # Not sure that we need to reload here.
         unless cache.key?("tap_migrations")
@@ -119,7 +122,7 @@ module Homebrew
       def self.write_names_and_aliases(regenerate: false)
         download_and_cache_data! unless cache.key?("formulae")
 
-        return unless Homebrew::API.write_names_file(all_formulae.keys, "formula", regenerate: regenerate)
+        return unless Homebrew::API.write_names_file(all_formulae.keys, "formula", regenerate:)
 
         (HOMEBREW_CACHE_API/"formula_aliases.txt").open("w") do |file|
           all_aliases.each do |alias_name, real_name|

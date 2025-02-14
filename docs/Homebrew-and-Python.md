@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # Python
 
 This page describes how Python is handled in Homebrew for users. See [Python for Formula Authors](Python-for-Formula-Authors.md) for advice on writing formulae to install packages written in Python.
@@ -6,7 +10,7 @@ Homebrew will install the necessary Python 3 version that is needed to make your
 
 ## Python 3
 
-Homebrew provides formulae for the newest and maintained releases of Python 3 (`python@3.y`) (https://devguide.python.org/versions/).
+Homebrew provides formulae for the newest and maintained releases of Python 3 (`python@3.y`) (<https://devguide.python.org/versions/>).
 We keep older `python@3.y` versions according to our [versioned formulae guidelines](https://docs.brew.sh/Versions).
 
 **Important:** Python may be upgraded to a newer version at any time. Consider using a version
@@ -29,7 +33,9 @@ $(brew --prefix python)/libexec/bin
 
 The Python formulae install [pip](https://pip.pypa.io/) (as `pip3`). Python@3.11 and older Python formulae also install [Setuptools](https://pypi.org/project/setuptools/).
 
-Starting with Python@3.12, the bundled Python packages should be updated by reinstalling brewed Python. For older Python formulae, they can be updated as described below.
+Starting with Python 3.12, the bundled Python packages should be updated by reinstalling brewed Python. For older Python formulae, they can be updated as described below.
+
+**Warning!** The steps below **do not work** for Homebrew's Python 3.12 or newer. If you need a newer version of `pip` or `setuptools` than comes with the Homebrewed Python, you **must** use a virtual environment or other isolation mechanism [per below](#pep-668-and-virtual-environments).
 
 Setuptools can be updated via `pip`, without having to reinstall brewed Python:
 
@@ -51,7 +57,7 @@ The `site-packages` is a directory that contains Python modules, including bindi
 $(brew --prefix)/lib/pythonX.Y/site-packages
 ```
 
-So, for Python 3.y.z, you'll find it at `/usr/local/lib/python3.y/site-packages` on macOS Intel.
+So, for Python 3.y.z, you'll find it at `/opt/homebrew/lib/python3.y/site-packages` on Apple Silicon.
 
 Python 3.y also searches for modules in:
 
@@ -68,15 +74,11 @@ The reasoning for this location is to preserve your modules between (minor) upgr
 
 Some formulae provide Python bindings.
 
-**Warning!** Python may crash (see [Common Issues](Common-Issues.md)) when you `import <module>` from a brewed Python if you ran `brew install <formula_with_python_bindings>` against the system Python. If you decide to switch to the brewed Python, then reinstall all formulae with Python bindings (e.g. `pyside`, `wxwidgets`, `pyqt`, `pygobject3`, `opencv`, `vtk` and `boost-python`).
-
 ## Policy for non-brewed Python bindings
 
 These should be installed via `pip install <package>`. To discover, you can use <https://pypi.org/search>.
 
 Starting with Python 3.12, we highly recommend you to use a separate virtualenv for this (see the section about [PEP 668](https://peps.python.org/pep-0668/#marking-an-interpreter-as-using-an-external-package-manager) below).
-
-**Note:** macOS's system Python does not provide `pip`. Follow the [pip documentation](https://pip.pypa.io/en/stable/installation/) to install it for your system Python if you would like it.
 
 ## Brewed Python modules
 
@@ -88,13 +90,9 @@ Since the system Python may not know which compiler flags to set when building b
 CFLAGS="-I$(brew --prefix)/include" LDFLAGS="-L$(brew --prefix)/lib" pip install <package>
 ```
 
-**Warning!** When you `brew install` formulae that provide Python bindings, you should **not be in an active virtual environment.**
+## PEP 668 and virtual environments
 
-Activate the virtualenv *after* you have installed your package with brew, or install brew's packages in a fresh terminal window. This will ensure Python modules are installed into Homebrew's `site-packages` and *not* into that of the virtual environment.
-
-## PEP 668 (Python@3.12) and virtualenvs
-
-Starting with Python@3.12, Homebrew follows [PEP 668](https://peps.python.org/pep-0668/#marking-an-interpreter-as-using-an-external-package-manager).
+Starting with Python 3.12, Homebrew follows [PEP 668](https://peps.python.org/pep-0668/#marking-an-interpreter-as-using-an-external-package-manager).
 
 If you wish to install a non-brew-packaged Python package (from PyPI for example):
 

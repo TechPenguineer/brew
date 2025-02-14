@@ -1,4 +1,4 @@
-# typed: true
+# typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
 require "attrable"
@@ -7,14 +7,11 @@ require "extend/object/deep_dup"
 module Cask
   module Artifact
     # Abstract superclass for all artifacts.
-    #
-    # @api private
     class AbstractArtifact
       extend T::Helpers
       abstract!
 
       include Comparable
-      extend Attrable
 
       def self.english_name
         @english_name ||= T.must(name).sub(/^.*:/, "").gsub(/(.)([A-Z])/, '\1 \2')
@@ -58,6 +55,7 @@ module Cask
         return unless other.class < AbstractArtifact
         return 0 if instance_of?(other.class)
 
+        # TODO: Replace class var @@sort_order with a class instance var.
         @@sort_order ||= [ # rubocop:disable Style/ClassVars
           PreflightBlock,
           # The `uninstall` stanza should be run first, as it may

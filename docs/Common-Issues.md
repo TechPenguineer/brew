@@ -1,3 +1,7 @@
+---
+last_review_date: "1970-01-01"
+---
+
 # Common Issues
 
 This is a list of commonly encountered problems, known issues, and their solutions.
@@ -123,7 +127,7 @@ This is an issue in the connection between your machine and GitHub, rather than 
 
 Upgrading macOS can cause errors like the following:
 
-* `dyld: Library not loaded: /usr/local/opt/icu4c/lib/libicui18n.54.dylib`
+* `dyld: Library not loaded: /opt/homebrew/opt/icu4c/lib/libicui18n.76.dylib`
 * `configure: error: Cannot find libz`
 
 Following a macOS upgrade it may be necessary to reinstall the Xcode Command Line Tools and then `brew upgrade` all installed formulae:
@@ -217,7 +221,7 @@ Help us by [submitting a fix](https://github.com/Homebrew/homebrew-cask/blob/HEA
 
 In this case, it’s likely your user account has no admin rights and therefore lacks permissions for writing to `/Applications`, which is the default install location. You can use [`--appdir`](https://github.com/Homebrew/homebrew-cask/blob/HEAD/USAGE.md#options) to choose where to install your applications.
 
-If `--appdir` doesn’t fix the issue or you do have write permissions to `/Applications`, verify you’re the owner of the `Caskroom` directory by running `ls -dl "$(brew --prefix)/Caskroom"` and checking the third field. If you are not the owner, fix it with `sudo chown -R "$(whoami)" "$(brew --prefix)/Caskroom"`. If you are, the problem may lie in the app bundle itself.
+If `--appdir` doesn’t fix the issue or you do have write permissions to `/Applications`, verify you’re the owner of the `Caskroom` directory by running `ls -dl "$(brew --caskroom)"` and checking the third field. If you are not the owner, fix it with `sudo chown -R "$(whoami)" "$(brew --caskroom)"`. If you are, the problem may lie in the app bundle itself.
 
 Some app bundles don’t have certain permissions that are necessary for us to move them to the appropriate location. You may check such permissions with `ls -ls '/path/to/application.app'`. If you see something like `dr-xr-xr-x` at the start of the output, that may be the cause. To fix it, we need to change the app bundle’s permission to allow us to move it, and then set it back to what it was (in case the developer set those permissions deliberately). See [litecoin.rb](https://github.com/Homebrew/homebrew-cask/blob/aa461148bbb5119af26b82cccf5003e2b4e50d95/Casks/l/litecoin.rb#L17-L27) for an example of such a cask.
 

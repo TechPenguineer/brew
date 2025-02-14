@@ -11,11 +11,4 @@ module Cachable
   def clear_cache
     cache.clear
   end
-
-  private
-
-  sig { params(hash: T::Hash[T.untyped, T.untyped]).void }
-  def overwrite_cache!(hash)
-    @cache = hash
-  end
 end
